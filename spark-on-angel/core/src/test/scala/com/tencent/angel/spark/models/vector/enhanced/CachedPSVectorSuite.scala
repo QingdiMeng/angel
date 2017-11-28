@@ -12,7 +12,6 @@
  * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
- *
  */
 
 package com.tencent.angel.spark.models.vector.enhanced
@@ -79,12 +78,13 @@ class CachedPSVectorSuite extends PSFunSuite with Matchers with SharedPSContext 
       iter.foreach { arr =>
         remoteVector.incrementWithCache(arr)
       }
-      remoteVector.flushIncrement()
       Iterator.empty
     }
     rdd2.count()
+    remoteVector.flushIncrement()
 
     val psArray = remoteVector.pull()
+    println(s"ps array: ${psArray.mkString(" ")}")
     _localSum.indices.foreach { i => assert(_localSum(i) === psArray(i) +- doubleEps) }
   }
 
@@ -129,7 +129,6 @@ class CachedPSVectorSuite extends PSFunSuite with Matchers with SharedPSContext 
     rdd2.count()
     assert(remoteVector.pull().sameElements(_localMax))
   }
-
 
   test("mergeMaxAndFlush") {
     val remoteVector = PSVector.duplicate(_psVector).fill(Double.NegativeInfinity).toCache
@@ -176,5 +175,48 @@ class CachedPSVectorSuite extends PSFunSuite with Matchers with SharedPSContext 
     rdd2.count()
 
     assert(remoteVector.pullFromCache().sameElements(_localMin))
+  }
+
+  test("PullFromCache") {
+
+    val remoteVector = PSVector.duplicate(_psVector).toCache
+    val rand = new Random()
+    val localArray = (0 until dim).toArray.map(x => rand.nextDouble())
+    remoteVector.push(localArray)
+
+    val temp = _rdd.mapPartitions { iter =>
+      val list = iter.toArray.map(x => remoteVector.pullFromCache())
+      val hashCode = list.head.hashCode()
+
+      list.foreach { x =>
+        require(x.hashCode() == hashCode)
+      }
+      Iterator.empty
+    }
+    temp.count()
+  }
+
+  test("increment sparse vector and flush") {
+    val sparseVec = PSVector.sparse(dim)
+
+    val rand = new Random()
+    val indices = (0 until dim / 2).toArray.map(x => rand.nextInt(dim).toLong).distinct
+    val pairs = indices.map(i => (i, rand.nextDouble()))
+    val pairSize = pairs.length
+
+    val pair1 = pairs.slice(0, pairSize / 2)
+    val pair2 = pairs.slice(pairSize / 4, pairSize)
+
+    sparseVec.increment(pair1)
+    sparseVec.increment(pair2)
+
+    val psPair = sparseVec.sparsePull().toMap
+
+    val pairMap1 = pair1.toMap
+    val pairMap2 = pair2.toMap
+    indices.foreach { i =>
+      val localSum = pairMap1.getOrElse(i, 0.0) + pairMap2.getOrElse(i, 0.0)
+      assert(localSum == psPair.getOrElse(i, 0.0))
+    }
   }
 }

@@ -36,7 +36,7 @@ abstract class PSVector extends PSModel {
 
   val poolId: Int
   val id: Int
-  val dimension: Int
+  val dimension: Long
 
   /**
     * Generate a CachedPSVector for this PSVectorKey
@@ -82,7 +82,11 @@ abstract class PSVector extends PSModel {
   }
 
   override def hashCode(): Int = {
-    poolId * 31 + id
+    (poolId + "_" + id).hashCode
+  }
+
+  override def toString: String = {
+    s"poolId: $poolId vectorId: $id"
   }
 
 
@@ -120,7 +124,7 @@ object PSVector {
     DensePSVector.apply(dim, capacity)
   }
 
-  def sparse(dim: Int, capacity: Int = 50): SparsePSVector = {
+  def sparse(dim: Long, capacity: Int = 50): SparsePSVector = {
     SparsePSVector.apply(dim, capacity)
   }
 }

@@ -19,10 +19,6 @@ package com.tencent.angel.spark.models.vector.enhanced
 
 import com.tencent.angel.spark.client.PSClient
 import com.tencent.angel.spark.models.vector.PSVector
-import org.apache.spark.sql.SparkSession
-import org.apache.spark.{SparkEnv, TaskContext}
-
-import com.tencent.angel.spark.models.vector.enhanced.MergeType.MergeType
 
 /**
  * CachedPSVector implements a more efficient Vector, which can benefit multi tasks on one executor
@@ -30,9 +26,9 @@ import com.tencent.angel.spark.models.vector.enhanced.MergeType.MergeType
 
 private[spark] class CachedPSVector(component: PSVector) extends PSVectorDecorator(component) {
 
-  override val dimension: Int = component.dimension
-  override val id: Int = component.id
-  override val poolId: Int = component.poolId
+  override val dimension = component.dimension
+  override val id  = component.id
+  override val poolId  = component.poolId
 
   def pullFromCache(): Array[Double] = {
     PullMan.pullFromCache(this)
@@ -44,7 +40,7 @@ private[spark] class CachedPSVector(component: PSVector) extends PSVectorDecorat
     */
   def incrementWithCache(delta: Array[Double]): Unit = {
     val mergedArray = PushMan.getFromIncrementCache(this)
-    PSClient.instance().BLAS.daxpy(this.dimension, 1.0, delta, 1, mergedArray, 1)
+    PSClient.instance().BLAS.daxpy(this.dimension.toInt, 1.0, delta, 1, mergedArray, 1)
   }
 
   /**
@@ -61,26 +57,9 @@ private[spark] class CachedPSVector(component: PSVector) extends PSVectorDecorat
     }
   }
 
-  def flushIncrement(): Unit = flush(MergeType.INCREMENT)
-  def flushMax(): Unit = flush(MergeType.MAX)
-  def flushMin(): Unit = flush(MergeType.MIN)
-
-  def flush(mergeType: MergeType): Unit = {
-    if (TaskContext.get() == null) {
-      //Run flushOne on driver
-      val sparkConf = SparkEnv.get.conf
-      val executorNum = sparkConf.getInt("spark.executor.instances", 1)
-      val core = sparkConf.getInt("spark.executor.cores", 1)
-      val totalTask = core * executorNum
-      val spark = SparkSession.builder().getOrCreate()
-      spark.sparkContext.range(0, totalTask, 1, totalTask).foreach {
-        taskId => PushMan.flushOne(this, mergeType)
-      }
-    } else {
-      //Run flushOne on executor
-      PushMan.flushOne(this, mergeType)
-    }
-  }
+  def flushIncrement(): Unit = PushMan.flush(poolId, id, MergeType.INCREMENT)
+  def flushMax(): Unit = PushMan.flush(poolId, id, MergeType.MAX)
+  def flushMin(): Unit = PushMan.flush(poolId, id, MergeType.MIN)
 
   // =======================================================================
   // Merge Operator

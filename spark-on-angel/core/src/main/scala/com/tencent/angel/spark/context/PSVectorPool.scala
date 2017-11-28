@@ -12,16 +12,16 @@
  * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
- *
  */
 
 package com.tencent.angel.spark.context
 
-import com.tencent.angel.spark.models.vector.{DensePSVector, PSVector, SparsePSVector, VectorType}
 import org.apache.spark.SparkException
 import sun.misc.Cleaner
 
 import com.tencent.angel.spark.models.vector.VectorType.VectorType
+import com.tencent.angel.spark.models.vector.enhanced.PullMan
+import com.tencent.angel.spark.models.vector.{DensePSVector, PSVector, SparsePSVector, VectorType}
 
 /**
  * PSVectorPool delegate a memory space on PS servers,
@@ -37,7 +37,7 @@ import com.tencent.angel.spark.models.vector.VectorType.VectorType
 
 private[spark] class PSVectorPool(
     val id: Int,
-    val dimension: Int,
+    val dimension: Long,
     val capacity: Int,
     val vType: VectorType) {
 
@@ -84,22 +84,23 @@ private[spark] class PSVectorPool(
   }
 
   private def doCreateOne(index: Int): PSVector = {
-    val task = new CleanTask(index)
     val vector = if (vType == VectorType.SPARSE) {
       new SparsePSVector(id, index, dimension)
     } else {
       new DensePSVector(id, index, dimension)
     }
+    val task = new CleanTask(this.id, index)
     cleaners.put(vector, Cleaner.create(vector, task))
     vector
   }
 
-  private class CleanTask(index: Int) extends Runnable {
+  private class CleanTask(poolId: Int, index: Int) extends Runnable {
     def run(): Unit = {
       bitSet.synchronized {
         bitSet.clear(index)
         size -= 1
       }
+      PullMan.autoRelease(poolId, index)
     }
   }
 

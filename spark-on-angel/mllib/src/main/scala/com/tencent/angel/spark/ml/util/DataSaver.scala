@@ -1,51 +1,28 @@
-/*
- * Tencent is pleased to support the open source community by making Angel available.
- *
- * Copyright (C) 2017 THL A29 Limited, a Tencent company. All rights reserved.
- *
- * Licensed under the BSD 3-Clause License (the "License"); you may not use this file except in
- * compliance with the License. You may obtain a copy of the License at
- *
- * https://opensource.org/licenses/BSD-3-Clause
- *
- * Unless required by applicable law or agreed to in writing, software distributed under the License
- * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
- * or implied. See the License for the specific language governing permissions and limitations under
- * the License.
- *
- */
-
 package com.tencent.angel.spark.ml.util
+
+import org.apache.spark.mllib.linalg.Vector
+import org.apache.spark.rdd.RDD
+import org.apache.spark.sql.{DataFrame, Row}
 
 import scala.collection.mutable.ArrayBuffer
 
-import org.apache.hadoop.fs.Path
-import org.apache.spark.mllib.linalg.Vector
-import org.apache.spark.sql.{DataFrame, Row}
-
-/**
- * DataSaver saves DataFrame to HDFS/LOCAL, all fields in DataFrame connect with a space
- *
- */
 object DataSaver {
-  def save(df: DataFrame, path: String): Unit = {
-    df.printSchema()
-    df.show(5)
-    println(s"save data count: ${df.count()}")
+
+  private val DELIMITER = "delimiter"
+  private val HEADER = "header"
+
+
+  def save(df: DataFrame, path: String, sep: String): Unit = {
 
     val rdd = df.rdd.map(row2Array)
-    rdd.count()
-
-    val outputPath = new Path(path)
-    val conf = rdd.context.hadoopConfiguration
-
-    val fs = outputPath.getFileSystem(conf)
-    if (fs.exists(outputPath)) {
-      fs.delete(outputPath, true)
+    if (path.startsWith(HDFS_PREFIX) || df.sqlContext.sparkContext.isLocal) {
+      // hdfs or local path
+      HDFSUtils.save(rdd, path, sep)
+    } else {
+      throw new Exception(s"Wrong path: $path")
     }
-
-    rdd.map(_.mkString(" ")).saveAsTextFile(path)
   }
+
 
   private def row2Array(row: Row): Array[String] = {
     val result = ArrayBuffer[String]()
@@ -55,10 +32,24 @@ object DataSaver {
       } else if (row.get(i) == null) {
         result += "null"
       } else {
-        val item = row.get(i) match {case x: java.lang.Object => x.toString}
+        val item = row.get(i) match {
+          case x: java.lang.Object => x.toString
+        }
         result += item
       }
     }
     result.toArray
   }
+
+  /**
+   * 保存RDD结果
+   *
+   * @param dataRdd
+   * @param path
+   */
+  def save(dataRdd: RDD[Array[String]], path: String, sep: String) {
+    // hdfs or local path
+    HDFSUtils.save(dataRdd, path, sep)
+  }
+
 }

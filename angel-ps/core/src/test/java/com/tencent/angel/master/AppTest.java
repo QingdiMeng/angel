@@ -1,24 +1,26 @@
 /*
  * Tencent is pleased to support the open source community by making Angel available.
- * 
- * Copyright (C) 2017 THL A29 Limited, a Tencent company. All rights reserved.
- * 
- * Licensed under the BSD 3-Clause License (the "License"); you may not use this file except in
+ *
+ * Copyright (C) 2017-2018 THL A29 Limited, a Tencent company. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in 
  * compliance with the License. You may obtain a copy of the License at
- * 
- * https://opensource.org/licenses/BSD-3-Clause
- * 
+ *
+ * https://opensource.org/licenses/Apache-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License
  * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
+ *
  */
+
 
 package com.tencent.angel.master;
 
 import com.tencent.angel.client.AngelClient;
 import com.tencent.angel.client.AngelClientFactory;
-import com.tencent.angel.common.Location;
+import com.tencent.angel.common.location.Location;
 import com.tencent.angel.conf.AngelConf;
 import com.tencent.angel.conf.MatrixConf;
 import com.tencent.angel.ipc.TConnection;
@@ -26,11 +28,11 @@ import com.tencent.angel.ipc.TConnectionManager;
 import com.tencent.angel.localcluster.LocalClusterContext;
 import com.tencent.angel.master.app.InternalErrorEvent;
 import com.tencent.angel.ml.matrix.MatrixContext;
+import com.tencent.angel.ml.matrix.RowType;
 import com.tencent.angel.protobuf.ProtobufUtil;
 import com.tencent.angel.protobuf.generated.ClientMasterServiceProtos.GetJobReportRequest;
 import com.tencent.angel.protobuf.generated.ClientMasterServiceProtos.GetJobReportResponse;
 import com.tencent.angel.protobuf.generated.ClientMasterServiceProtos.JobStateProto;
-import com.tencent.angel.protobuf.generated.MLProtos;
 import com.tencent.angel.protobuf.generated.PSAgentMasterServiceProtos.TaskIterationRequest;
 import com.tencent.angel.worker.task.TaskId;
 import org.apache.commons.logging.Log;
@@ -61,9 +63,8 @@ public class AppTest {
     PropertyConfigurator.configure("../conf/log4j.properties");
   }
 
-  @Before
-  public void setup() throws Exception {
-    try{
+  @Before public void setup() throws Exception {
+    try {
       // set basic configuration keys
       Configuration conf = new Configuration();
       conf.setBoolean("mapred.mapper.new-api", true);
@@ -81,6 +82,8 @@ public class AppTest {
       conf.setInt(AngelConf.ANGEL_WORKERGROUP_NUMBER, 1);
       conf.setInt(AngelConf.ANGEL_PS_NUMBER, 1);
       conf.setInt(AngelConf.ANGEL_WORKER_TASK_NUMBER, 2);
+      conf.setInt(AngelConf.ANGEL_WORKER_HEARTBEAT_INTERVAL_MS, 1000);
+      conf.setInt(AngelConf.ANGEL_PS_HEARTBEAT_INTERVAL_MS, 1000);
 
       // get a angel client
       angelClient = AngelClientFactory.get(conf);
@@ -92,7 +95,7 @@ public class AppTest {
       mMatrix.setColNum(100000);
       mMatrix.setMaxRowNumInBlock(1);
       mMatrix.setMaxColNumInBlock(50000);
-      mMatrix.setRowType(MLProtos.RowType.T_INT_DENSE);
+      mMatrix.setRowType(RowType.T_INT_DENSE);
       mMatrix.set(MatrixConf.MATRIX_OPLOG_ENABLEFILTER, "false");
       mMatrix.set(MatrixConf.MATRIX_HOGWILD, "true");
       mMatrix.set(MatrixConf.MATRIX_AVERAGE, "false");
@@ -110,10 +113,8 @@ public class AppTest {
     }
   }
 
-  @SuppressWarnings("unchecked")
-  @Test
-  public void testGetJobReport() throws Exception {
-    try{
+  @SuppressWarnings("unchecked") @Test public void testGetJobReport() throws Exception {
+    try {
       AngelApplicationMaster angelAppMaster = LocalClusterContext.get().getMaster().getAppMaster();
       Location masterLoc =
         LocalClusterContext.get().getMaster().getAppMaster().getAppContext().getMasterService()
@@ -140,10 +141,8 @@ public class AppTest {
       assertEquals(response.getJobReport().getJobState(), JobStateProto.J_RUNNING);
       assertEquals(response.getJobReport().getCurIteration(), jobIteration);
 
-      angelAppMaster
-        .getAppContext()
-        .getEventHandler()
-        .handle(new InternalErrorEvent(angelAppMaster.getAppContext().getApplicationId(), "failed"));
+      angelAppMaster.getAppContext().getEventHandler().handle(
+        new InternalErrorEvent(angelAppMaster.getAppContext().getApplicationId(), "failed"));
 
       Thread.sleep(5000);
 
@@ -191,9 +190,8 @@ public class AppTest {
     return response;
   }
 
-  @After
-  public void stop() throws Exception {
-    try{
+  @After public void stop() throws Exception {
+    try {
       LOG.info("stop local cluster");
       angelClient.stop();
     } catch (Exception x) {

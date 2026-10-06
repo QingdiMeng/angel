@@ -1,30 +1,33 @@
 /*
  * Tencent is pleased to support the open source community by making Angel available.
  *
- * Copyright (C) 2017 THL A29 Limited, a Tencent company. All rights reserved.
+ * Copyright (C) 2017-2018 THL A29 Limited, a Tencent company. All rights reserved.
  *
- * Licensed under the BSD 3-Clause License (the "License"); you may not use this file except in
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in 
  * compliance with the License. You may obtain a copy of the License at
  *
- * https://opensource.org/licenses/BSD-3-Clause
+ * https://opensource.org/licenses/Apache-2.0
  *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is
- * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
- * either express or implied. See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License
+ * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+ * or implied. See the License for the specific language governing permissions and limitations under
+ * the License.
+ *
  */
+
 
 package com.tencent.angel.worker;
 
 import com.google.protobuf.RpcController;
 import com.google.protobuf.ServiceException;
-import com.tencent.angel.common.Location;
+import com.tencent.angel.common.location.Location;
 import com.tencent.angel.ipc.MLRPC;
 import com.tencent.angel.ipc.RpcServer;
 import com.tencent.angel.protobuf.generated.MasterWorkerServiceProtos.GetThreadStackRequest;
 import com.tencent.angel.protobuf.generated.MasterWorkerServiceProtos.GetThreadStackResponse;
 import com.tencent.angel.protobuf.generated.WorkerWorkerServiceProtos.*;
 import com.tencent.angel.utils.NetUtils;
+import com.tencent.angel.utils.ThreadUtils;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 
@@ -48,8 +51,7 @@ public class WorkerService implements WorkerProtocol {
 
   }
 
-  @Override
-  public long getProtocolVersion(String protocol, long clientVersion) throws IOException {
+  @Override public long getProtocolVersion(String protocol, long clientVersion) throws IOException {
     return 0;
   }
 
@@ -57,9 +59,9 @@ public class WorkerService implements WorkerProtocol {
     int workerServerPort = NetUtils.chooseAListenPort(WorkerContext.get().getConf());
     String workerServerHost = InetAddress.getLocalHost().getHostAddress();
     location = new Location(workerServerHost, workerServerPort);
-    rpcServer =
-        MLRPC.getServer(WorkerService.class, this, new Class<?>[] {WorkerProtocol.class},
-            workerServerHost, workerServerPort, WorkerContext.get().getConf());
+    rpcServer = MLRPC
+      .getServer(WorkerService.class, this, new Class<?>[] {WorkerProtocol.class}, workerServerHost,
+        workerServerPort, WorkerContext.get().getConf());
     LOG.info("Starting workerserver service at " + workerServerHost + ":" + workerServerPort);
     rpcServer.openServer();
   }
@@ -73,55 +75,48 @@ public class WorkerService implements WorkerProtocol {
 
 
   public GetThreadStackResponse workerThreadStack(RpcController controller,
-      GetThreadStackRequest request) throws ServiceException {
+    GetThreadStackRequest request) throws ServiceException {
     String stackTraceInfoString = getThreadStack();
     GetThreadStackResponse getThreadStackResponse =
-        GetThreadStackResponse.newBuilder().setStack(stackTraceInfoString).build();
+      GetThreadStackResponse.newBuilder().setStack(stackTraceInfoString).build();
     return getThreadStackResponse;
   }
-  
+
   private String getThreadStack() {
     ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
     ThreadInfo[] threadInfo = threadMXBean.dumpAllThreads(true, true);
     StringBuilder stackTraceString = new StringBuilder("Worker\n");
-    StringBuilder infoBlock = new StringBuilder("\n");
     for (ThreadInfo t : threadInfo) {
-      infoBlock = new StringBuilder("\n\n");
-      infoBlock.append("threadid: ").append(t.getThreadId()).append("   threadname: ").append(t.getThreadName()).append("       threadstate: ").append(t.getThreadState()).append("\n");
-      for (StackTraceElement stackTraceElement : t.getStackTrace()) {
-        infoBlock.append("   ").append(stackTraceElement.toString()).append("\n");
-      }
-      stackTraceString.append(infoBlock).append("\n\n");
+      stackTraceString.append(ThreadUtils.toString(t));
+      stackTraceString.append("\n\n");
     }
     return stackTraceString.toString();
   }
 
 
-  @Override
-  public ActionResponse action(RpcController controller, ActionRequest request)
-      throws ServiceException {
+  @Override public ActionResponse action(RpcController controller, ActionRequest request)
+    throws ServiceException {
     // TODO Auto-generated method stub
     return null;
   }
 
   @Override
   public ActionResultResponse actionResult(RpcController controller, ActionResultRequest request)
-      throws ServiceException {
+    throws ServiceException {
     // TODO Auto-generated method stub
     return null;
   }
 
 
-  @Override
-  public UpdateResponse update(RpcController controller, UpdateRequest request)
-      throws ServiceException {
+  @Override public UpdateResponse update(RpcController controller, UpdateRequest request)
+    throws ServiceException {
     // TODO Auto-generated method stub
     return null;
   }
 
   /**
    * Get worker location(ip and listening port)
-   * 
+   *
    * @return Location worker location(ip and listening port)
    */
   public Location getLocation() {

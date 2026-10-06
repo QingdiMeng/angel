@@ -5,8 +5,8 @@ Spark on Angel supports Yarn and Local modes, allowing users to debug the applic
 ## Deployment Steps
 1. Install Spark
 2. Unzip angel-\<version\>-bin.zip
-3. Set `SPARK_HOME`, `ANGEL_HOME`, `ANGEL_HDFS_HOME` variables in angel-<version>-bin/bin/spark-on-angel-env.sh
-4. Upload angel-\<version\>-bin dir to the HDFS path
+3. Set `SPARK_HOME`, `ANGEL_HOME`, `ANGEL_HDFS_HOME` variables in angel-\<version>\-bin/bin/spark-on-angel-env.sh
+4. Upload angel-\<version\>-bin dir to the `ANGEL_HDFS_HOME` path
 
 ## Submit a Spark on Angel Job
 Once a Spark on Angel application has been packaged, it can be launched by the spark-submit script; make sure to do the following:
@@ -16,7 +16,7 @@ Once a Spark on Angel application has been packaged, it can be launched by the s
 - set the Angel PS resource parameters: spark.ps.instance, spark.ps.cores, spark.ps.memory
 
 
-## Running Example (BreezeSGD)
+## Running Example (PageRank)
 
 ```bash
 #! /bin/bash
@@ -27,50 +27,46 @@ Once a Spark on Angel application has been packaged, it can be launched by the s
 The script is:
 
 ```bash
-#! /bin/bash
+#!/bin/bash
+
 source ./spark-on-angel-env.sh
-$SPARK_HOME/bin/spark-submit \
+
+${SPARK_HOME}/bin/spark-submit \
     --master yarn-cluster \
     --conf spark.ps.jars=$SONA_ANGEL_JARS \
-    --conf spark.ps.instances=10 \
+    --conf spark.ps.instances=2 \
     --conf spark.ps.cores=2 \
-    --conf spark.ps.memory=6g \
-    --queue g_teg_angel-offline \
-    --jars $SONA_SPARK_JARS \
-    --name "BreezeSGD-spark-on-angel" \
-    --driver-memory 10g \
-    --num-executors 10 \
+    --conf spark.ps.memory=2g \
+    --jars $SONA_SPARK_JARS\
+    --name "PageRank-spark-on-angel" \
+    --driver-memory 1g \
+    --num-executors 2 \
     --executor-cores 2 \
-    --executor-memory 4g \
-    --class com.tencent.angel.spark.examples.ml.BreezeSGD \
-    ./../lib/spark-on-angel-examples-${ANGEL_VERSION}.jar
+    --executor-memory 2g \
+    --class com.tencent.angel.spark.examples.cluster.PageRankExample \
+    ./../lib/spark-on-angel-examples-${ANGEL_VERSION}.jar \
+    input:${ANGEL_HDFS_HOME}/data/bc/edge \
+    output:${ANGEL_HDFS_HOME} \
+    resetProp:0.15
 ```
 
-## Minimal Example of LR in Spark on Angel Verion
+## Minimal Example of PageRank in Spark on Angel Verion
 
-[Complete Code](https://github.com/Tencent/angel/blob/branch-1.3.0/spark-on-angel/examples/src/main/scala/com/tencent/angel/spark/examples/ml/AngelLR.scala)
+[Complete Code](https://github.com/Tencent/angel/blob/branch-3.2.0/spark-on-angel/examples/src/main/scala/com/tencent/angel/spark/examples/cluster/PageRankExample.scala)
 
 ```scala
-   PSContext.getOrCreate(sc)
+val edges = GraphIO.load(input, isWeighted = isWeight,
+      srcIndex = srcIndex, dstIndex = dstIndex,
+      weightIndex = weightIndex, sep = sep)
 
-   val psW = PSVector.dense(dim)
-   val psG = PSVector.duplicate(psW)
-
-   println("Initial psW: " + psW.dimension)
-
-   for (i <- 1 to ITERATIONS) {
-     println("On iteration " + i)
-
-     val localW = new DenseVector(psW.pull())
-
-     trainData.map { case (x, label) =>
-       val g = -label * (1 - 1.0 / (1.0 + math.exp(-label * localW.dot(x)))) * x
-       psG.increment(g.toArray)
-     }.count()
-
-     psW.toBreeze -= (psG.toBreeze :* (1.0 / sampleNum))
-     psG.zero()
+    val ranks = version match {
+      case "edge-cut" => edgeCutPageRank(edges, partitionNum, psPartitionNum,
+        storageLevel, tol, resetProp, isWeight,
+        useBalancePartition, balancePartitionPercent, numBatch, batchSize)
+      case "vertex-cut" => vertexCutPageRank(edges, partitionNum, psPartitionNum,
+        storageLevel, tol, resetProp, isWeight,
+        useBalancePartition, balancePartitionPercent, numBatch, batchSize)
     }
 
-   println(s"Final psW: ${psW.pull().mkString(" ")}")
+    GraphIO.save(ranks, output)
 ```

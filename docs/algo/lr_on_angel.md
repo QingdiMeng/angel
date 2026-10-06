@@ -4,6 +4,7 @@
 
 ## 1. 算法介绍
 
+### Logistic Regression 
 逻辑回归模型（logistic regression model）是一种分类模型。样本x属于类别y的概率P(y|x)服从logistic分布：   
 
 ![](../img/LR_P.png)  
@@ -19,94 +20,80 @@
 
 其中：![](../img/LR_reg.gif)为L2正则项。
 
-## 2. 分布式实现 on Angel
+## 2. Logistic Regression on Angel
 
-* Angel MLLib提供了用mini-batch gradient descent优化方法求解的Logistic Regression算法，算法逻辑如下
+* angel提供了用mini-batch gradient descent优化方法求解的Logistic Regression算法，算法逻辑如下
 
 ![](../img/LR_gd.png)  
 
+* 逻辑回归算法的模型仅由单个输入层组成，该输入层可为“dense”或“sparse”，该层的输出即为模型的输出结果，即分类结果。
 
-* 学习速率在迭代过程中衰减:
-![](../img/LR_lr_ecay.gif) 其中:   
-  * α为衰减系数
-  * T为迭代次数
+* logistic regression训练过程
+    Angel实现了用梯度下降方法优化，迭代训练得到LR模型，每次迭代worker和PS上的逻辑如下：       
+    * worker：每次迭代从PS上拉取矩阵对应的权重向量到本地，计算出对应的梯度更新值，push到PS对应的梯度向量上。注意，此处的会根据worker端每个样本对应的特征索引拉取对应的模型权重，这样做可减小通信成本同时节约内存以提高计算效率
+    * PS：PS汇总所有worker推送的梯度更新值，取平均，通过优化器计算新的模型权重并进行相应更新
+    
+* LR预测结果：
+    * 格式：rowID,pred,prob,label
+    * 说明：rowID表示样本所在的行ID，从0开始计数；pred:样本的预测结果值；prob:样本相对该预测结果的概率；label:预测样本被分到的类别，当预测结果pred大于0时，label为1，小于0为-1
   
-* 模型类型：      
-  LR算法的模型支持DoubleDense，DoubleSparse，DoubleSparseLongKey三种格式，可以通过 “ml.lr.model.type”参数设置，具体情况如下：      
-  * DoubleDense      
-    * 参数：-- ml.lr.model.type：T_DOUBLE_DENSE      
-    * 特点：DoubleDense类型的模型，适合特征比较稠密的数据。模型用数组存储，节省存储空间，访问速度快，性能高。      
-  * DoubleSparse      
-    * 参数：-- ml.lr.model.type：T_DOUBLE_SPARSE      
-    * 特点：DoubleSparse类型的模型，适合特征稀疏度比较高的数据。模型用Map存储，K为特征ID，V为特征对应的值，K的范围为Int型值域。      
-  * DoubleSparseLongKey      
-    * 参数：-- ml.lr.model.type：T_DOUBLE_SPARSE_LONGKEY      
-    * 特点：DoubleSparseLongKey类型的模型，适合特征稀疏度很高的数据。模型用Map存储，K为特征ID，V为对应的值，K的类型为Long型值域。      
-
-
 ## 3. 运行 & 性能
 
 ### 输入格式
-* ml.feature.num：特征向量的维度   
-* ml.data.type：支持"dummy"、"libsvm"两种数据格式，具体参考：[Angel数据格式](data_format.md)
+
+LR on Angel支持“dense”、“libsvm”、“dummy”三种数据格式。其中“dense”即为一般的数据表格式，每列表示相应的特征，各特征之间用空格或逗号隔开，此处不再详述。下面重点说下“dummy”和“libsvm”格式：
+
+* **dummy格式**
+
+每行文本表示一个样本，每个样本的格式为"y index1 index2 index3 ..."。其中：index特征的ID；训练数据的y为样本的类别，可以取1、-1两个值；预测数据的y为样本的ID值。比如，属于正类的样本[2.0, 3.1, 0.0, 0.0, -1, 2.2]的文本表示为“1 0 1 4 5”，其中“1”为类别，“0 1 4 5”表示特征向量的第0、1、4、5个维度的值不为0。同理，属于负类的样本[2.0, 0.0, 0.1, 0.0, 0.0, 0.0]被表示为“-1 0 2”。
+
+ * **libsvm格式**
+
+每行文本表示一个样本，每个样本的格式为"y index1:value1 index2:value1 index3:value3 ..."。其中：index为特征的ID,value为对应的特征值；训练数据的y为样本的类别，可以取1、-1两个值；预测数据的y为样本的ID值。比如，属于正类的样本[2.0, 3.1, 0.0, 0.0, -1, 2.2]的文本表示为“1 0:2.0 1:3.1 4:-1 5:2.2”，其中“1”为类别，"0:2.0"表示第0个特征的值为2.0。同理，属于负类的样本[2.0, 0.0, 0.1, 0.0, 0.0, 0.0]被表示为“-1 0:2.0 2：0.1”。
 
 ###  参数
-* 算法参数  
-  * ml.epoch.num：迭代次数   
-  * ml.batch.sample.ratio：每次迭代的样本采样率   
-  * ml.sgd.batch.num：每次迭代的mini-batch的个数   
-  * ml.validate.ratio：每次validation的样本比率，设为0时不做validation    
-  * ml.learn.rate：初始学习速率   
-  * ml.learn.decay：学习速率衰减系数   
-  * ml.reg.l2：L2惩罚项系数
-  * ml.lr.use.intercept：使用截距   
-
-* 输入输出参数
-  * angel.train.data.path：训练数据的输入路径
-  * angel.predict.data.path：预测数据的输入路径
-  * ml.feature.num：数据特征个数   
-  * ml.data.type：数据格式，支持"dummy"、"libsvm"    
-  * angel.save.model.path：训练完成后，模型的保存路径
-  *	angel.predict.out.path：预测结果存储路径
-  * angel.log.path：log文件保存路径   
-
-* 资源参数
-  * angel.workergroup.number：Worker个数   
-  * angel.worker.memory.mb：Worker申请内存大小    
-  * angel.worker.task.number：每个Worker上的task的个数，默认为1    
-  * angel.ps.number：PS个数    
-  * angel.ps.memory.mb：PS申请内存大小   
-
+* 参数说明            
+	* ml.epoch.num：迭代轮数
+    * ml.feature.index.range:特征索引范围
+    * ml.model.size：特征维数
+    * ml.data.validate.ratio：验证集采样率
+    * ml.data.type：数据类型，分“libsvm”和“dummy”两种
+    * ml.learn.rate：学习率
+    * ml.opt.decay.class.name：学习率衰减系类
+    * ml.opt.decay.on.batch: 是否对每个mini batch衰减
+    * ml.opt.decay.alpha: 学习率衰减参数alpha
+    * ml.opt.decay.beta: 学习率衰减参数beta
+    * ml.opt.decay.intervals: 学习率衰减参数intervals
+    * ml.reg.l2: l2正则项系数
+    * action.type：任务类型，训练用"train",预测用"predict"
+    * ml.inputlayer.optimizer：优化器类型，可选"adam","ftrl"和"momentum"
+    * ml.data.label.trans.class: 是否要对标签进行转换, 默认为"NoTrans", 可选项为"ZeroOneTrans"(转为0-1), "PosNegTrans"(转为正负1), "AddOneTrans"(加1), "SubOneTrans"(减1). 
+    * ml.data.label.trans.threshold: "ZeroOneTrans"(转为0-1), "PosNegTrans"(转为正负1)这两种转还要以设一个阈值, 大于阈值的为1, 阈值默认为0
+    * ml.data.posneg.ratio: 正负样本重采样比例, 对于正负样本相差较大的情况有用(如5倍以上)
 
 * 提交命令
 你可以通过下面命令向Yarn集群提交LR算法训练任务:
 ```java
-./bin/angel-submit \
-    --action.type train \
-    --angel.app.submit.class com.tencent.angel.ml.classification.lr.LRRunner  \
-    --angel.train.data.path $input_path \
-    --angel.save.model.path $model_path \
-    --angel.log.path $logpath \
-    --ml.epoch.num 10 \
-    --ml.batch.num 10 \
-    --ml.feature.num 10000 \
-    --ml.validate.ratio 0.1 \
-    --ml.data.type dummy \
-    --ml.learn.rate 1 \
-    --ml.learn.decay 0.1 \
-    --ml.reg.l2 0 \
-    --angel.workergroup.number 3 \
-    --angel.worker.task.number 3 \
-    --angel.ps.number 1 \
-    --angel.ps.memory.mb 5000 \
-    --angel.job.name=angel_lr_smalldata
+../../bin/angel-submit \
+    -Dml.epoch.num=20 \
+    -Dangel.app.submit.class=com.tencent.angel.ml.core.graphsubmit.GraphRunner \
+    -Dml.model.class.name=com.tencent.angel.ml.classification.LogisticRegression \
+    -Dml.feature.index.range=$featureNum \
+    -Dml.model.size=$featureNum \
+    -Dml.data.validate.ratio=0.1 \ 
+    -Dml.data.type=libsvm \
+    -Dml.learn.rate=0.1 \
+    -Dml.reg.l2=0.03 \
+    -Daction.type=train \
+    -Dml.inputlayer.optimizer=ftrl \
+    -Dangel.train.data.path=$input_path \
+    -Dangel.workergroup.number=20 \
+    -Dangel.worker.memory.mb=20000 \
+    -Dangel.worker.task.number=1 \
+    -Dangel.ps.number=20 \
+    -Dangel.ps.memory.mb=10000 \
+    -Dangel.task.data.storage.level=memory \
+    -Dangel.job.name=angel_l1
 ```
 
-### 性能
-* 数据：视频推荐数据，5×10^7特征，8×10^7样本
-* 资源：
-	* Spark：executor：50个，14G内存，4个core；driver：55G内存
-	* Angel：executor：50个，10G内存，4个task；ps：20个，5G内存
-* 迭代100次时间：
-	* Angel：20min
-	* Spark：145min
+

@@ -1,96 +1,99 @@
 /*
  * Tencent is pleased to support the open source community by making Angel available.
  *
- * Copyright (C) 2017 THL A29 Limited, a Tencent company. All rights reserved.
+ * Copyright (C) 2017-2018 THL A29 Limited, a Tencent company. All rights reserved.
  *
- * Licensed under the BSD 3-Clause License (the "License"); you may not use this file except in
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in
  * compliance with the License. You may obtain a copy of the License at
  *
- * https://opensource.org/licenses/BSD-3-Clause
+ * https://opensource.org/licenses/Apache-2.0
  *
- * Unless required by applicable law or agreed to in writing, software distributed under the License is
- * distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND,
- * either express or implied. See the License for the specific language governing permissions and
- * limitations under the License.
+ * Unless required by applicable law or agreed to in writing, software distributed under the License
+ * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+ * or implied. See the License for the specific language governing permissions and limitations under
+ * the License.
+ *
  */
+
 
 package com.tencent.angel.ml.matrix;
 
+import com.tencent.angel.PartitionKey;
 import com.tencent.angel.conf.MatrixConf;
-import com.tencent.angel.protobuf.generated.MLProtos;
-import com.tencent.angel.protobuf.generated.MLProtos.MatrixProto;
-
-import java.util.HashMap;
+import com.tencent.angel.ps.ParameterServerId;
+import com.tencent.angel.ps.storage.matrix.PSMatrixInit;
+import com.tencent.angel.ps.storage.partition.IServerPartition;
+import com.tencent.angel.ps.storage.partition.storage.IServerPartitionStorage;
+import com.tencent.angel.ps.storage.partitioner.HashPartitioner;
+import com.tencent.angel.ps.storage.vector.element.IElement;
+import com.tencent.angel.psagent.matrix.transport.router.KeyHash;
+import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Map.Entry;
+import java.util.Set;
+import java.util.TreeMap;
+
+import org.apache.commons.logging.Log;
+import org.apache.commons.logging.LogFactory;
 
 /**
  * The meta of matrix.
  */
-public class MatrixMeta implements java.io.Serializable {
-  private final int id;
-  private final String name;
-  private final long colNum;
-  private final int rowNum;
-  private MLProtos.RowType rowType;
-  private final Map<String, String> attributes;
-
+public class MatrixMeta {
+  private final static Log LOG = LogFactory.getLog(MatrixMeta.class);
+  private final int totalPartNum;
 
   /**
-   * Creates a new matrix meta.
-   *
-   * @param id          the id
-   * @param name        the name
-   * @param colNum      the col num
-   * @param rowNum      the row num
-   * @param rowType     the row type
-   * @param matrixProto the matrix proto
+   * Matrix basic parameters
    */
-  public MatrixMeta(int id, String name, long colNum, int rowNum, MLProtos.RowType rowType,
-      MatrixProto matrixProto) {
-    this.id = id;
-    this.name = name;
-    this.rowNum = rowNum;
-    this.colNum = colNum;
-    this.rowType = rowType;
-    this.attributes = new HashMap<>();
-    for (MLProtos.Pair pair : matrixProto.getAttributeList()) {
-      this.attributes.put(pair.getKey(), pair.getValue());
+  private final MatrixContext matrixContext;
+
+  /**
+   * Matrix partitions parameters
+   */
+  private final Map<Integer, PartitionMeta> partitionMetas;
+
+  /**
+   * Partition keys sorted by partition id
+   */
+  private final PartitionKey[] partitionKeys;
+
+  /**
+   * Create a MatrixMeta
+   *
+   * @param mContext matrix context
+   */
+  public MatrixMeta(int totalPartNum, MatrixContext mContext) {
+    this(totalPartNum, mContext, new TreeMap<>());
+  }
+
+  /**
+   * Create a MatrixMeta
+   *
+   * @param matrixContext matrix context
+   * @param partitionMetas matrix partitions meta
+   */
+  public MatrixMeta(int totalPartNum, MatrixContext matrixContext,
+      Map<Integer, PartitionMeta> partitionMetas) {
+    this.totalPartNum = totalPartNum;
+    this.matrixContext = matrixContext;
+    this.partitionMetas = partitionMetas;
+    this.partitionKeys = new PartitionKey[partitionMetas.size()];
+    int index = 0;
+    for (Entry<Integer, PartitionMeta> partitionMeta : partitionMetas.entrySet()) {
+      partitionKeys[index++] = partitionMeta.getValue().getPartitionKey();
     }
   }
 
   /**
-   * Creates a new matrix meta by proto.
-   *
-   * @param matrixProto the matrix proto
-   */
-  public MatrixMeta(MatrixProto matrixProto) {
-    this(matrixProto.getId(), matrixProto.getName(), matrixProto.getColNum(), matrixProto
-        .getRowNum(), matrixProto.getRowType(), matrixProto);
-  }
-
-  /**
-   * Creates a new matrix meta from context.
-   *
-   * @param context  the context
-   * @param matrixId the matrix id
-   */
-  public MatrixMeta(MatrixContext context, int matrixId) {
-    this.id = matrixId;
-    this.name = context.getName();
-    this.rowNum = context.getRowNum();
-    this.colNum = context.getColNum();
-    this.rowType = context.getRowType();
-    this.attributes = context.getAttributes();
-  }
-
-
-  /**
-   * Gets id.
+   * Get matrix id
    *
    * @return the id
    */
   public int getId() {
-    return id;
+    return matrixContext.getMatrixId();
   }
 
   /**
@@ -99,7 +102,7 @@ public class MatrixMeta implements java.io.Serializable {
    * @return the row num
    */
   public int getRowNum() {
-    return rowNum;
+    return matrixContext.getRowNum();
   }
 
   /**
@@ -108,7 +111,42 @@ public class MatrixMeta implements java.io.Serializable {
    * @return the col num
    */
   public long getColNum() {
-    return colNum;
+    return matrixContext.getColNum();
+  }
+
+  /**
+   * Get number of non-zero elements
+   *
+   * @return number of non-zero elements
+   */
+  public long getValidIndexNum() {
+    return matrixContext.getValidIndexNum();
+  }
+
+  /**
+   * Get number of non-zero elements
+   *
+   * @return number of non-zero elements
+   */
+  public long getValidIndexNumInOnePart() {
+    LOG.info("====valid index number = " + matrixContext.getValidIndexNum() + ", total part num = " + getTotalPartNum());
+    return (long) ((double) matrixContext.getValidIndexNum() / getTotalPartNum());
+  }
+
+  /**
+   * get index range start
+   */
+  public long getIndexStart() {
+    return matrixContext.getIndexStart();
+  }
+
+  /**
+   * Get index range end
+   *
+   * @return index range end
+   */
+  public long getIndexEnd() {
+    return matrixContext.getIndexEnd();
   }
 
   /**
@@ -117,7 +155,7 @@ public class MatrixMeta implements java.io.Serializable {
    * @return the name
    */
   public String getName() {
-    return name;
+    return matrixContext.getName();
   }
 
   /**
@@ -125,31 +163,32 @@ public class MatrixMeta implements java.io.Serializable {
    *
    * @return the row type
    */
-  public MLProtos.RowType getRowType() {
-    return rowType;
+  public RowType getRowType() {
+    return matrixContext.getRowType();
   }
 
   /**
    * Gets attribute.
    *
-   * @param key   the key
+   * @param key the key
    * @param value the default value
    * @return the attribute
    */
   public String getAttribute(String key, String value) {
-    if (!attributes.containsKey(key))
+    if (!matrixContext.getAttributes().containsKey(key)) {
       return value;
-    return attributes.get(key);
+    }
+    return matrixContext.getAttributes().get(key);
   }
-  
+
   /**
    * Gets attribute.
    *
-   * @param key   the key
+   * @param key the key
    * @return the attribute
    */
   public String getAttribute(String key) {
-    return attributes.get(key);
+    return matrixContext.getAttributes().get(key);
   }
 
   /**
@@ -158,8 +197,7 @@ public class MatrixMeta implements java.io.Serializable {
    * @return the result
    */
   public boolean isAverage() {
-    String average =
-        getAttribute(MatrixConf.MATRIX_AVERAGE, MatrixConf.DEFAULT_MATRIX_AVERAGE);
+    String average = getAttribute(MatrixConf.MATRIX_AVERAGE, MatrixConf.DEFAULT_MATRIX_AVERAGE);
     return Boolean.parseBoolean(average);
   }
 
@@ -169,8 +207,7 @@ public class MatrixMeta implements java.io.Serializable {
    * @return the result
    */
   public boolean isHogwild() {
-    String hogwild =
-        getAttribute(MatrixConf.MATRIX_HOGWILD, MatrixConf.DEFAULT_MATRIX_HOGWILD);
+    String hogwild = getAttribute(MatrixConf.MATRIX_HOGWILD, MatrixConf.DEFAULT_MATRIX_HOGWILD);
     return Boolean.parseBoolean(hogwild);
   }
 
@@ -180,16 +217,240 @@ public class MatrixMeta implements java.io.Serializable {
    * @return the staleness
    */
   public int getStaleness() {
-    int staleness = 0;// MLContext.get().getStaleness();
-    if (attributes.containsKey(MatrixConf.MATRIX_STALENESS)) {
-      staleness = Integer.parseInt(attributes.get(MatrixConf.MATRIX_STALENESS));
+    return Integer.parseInt(getAttribute(MatrixConf.MATRIX_STALENESS, "0"));
+  }
+
+  /**
+   * Get partitions meta
+   *
+   * @return all partitions meta
+   */
+  public Map<Integer, PartitionMeta> getPartitionMetas() {
+    return partitionMetas;
+  }
+
+  /**
+   * Get matrix context
+   *
+   * @return matrix context
+   */
+  public MatrixContext getMatrixContext() {
+    return matrixContext;
+  }
+
+  /**
+   * Add meta for a partition
+   *
+   * @param id partition id
+   * @param meta partition meta
+   */
+  public void addPartitionMeta(int id, PartitionMeta meta) {
+    partitionMetas.put(id, meta);
+  }
+
+  /**
+   * Get meta for a partition
+   *
+   * @param partId partition id
+   * @return partition meta
+   */
+  public PartitionMeta getPartitionMeta(int partId) {
+    return partitionMetas.get(partId);
+  }
+
+  /**
+   * Get the stored pss for a partition
+   *
+   * @param partId partition id
+   * @return the stored pss
+   */
+  public List<ParameterServerId> getPss(int partId) {
+    PartitionMeta partitionMeta = partitionMetas.get(partId);
+    if (partitionMeta == null) {
+      return null;
     }
-    return staleness;
+    return partitionMeta.getPss();
+  }
+
+  /**
+   * Get the stored pss for the whole matrix
+   *
+   * @return the stored pss
+   */
+  public List<ParameterServerId> getPss() {
+    Set<ParameterServerId> pss = new HashSet<>();
+    for (PartitionMeta partMeta : partitionMetas.values()) {
+      pss.add(partMeta.getMasterPs());
+    }
+    return new ArrayList<>(pss);
+  }
+
+  /**
+   * Set the stored pss for a partition
+   *
+   * @param partId partition id
+   * @param psIds the stored pss
+   */
+  public void setPss(int partId, List<ParameterServerId> psIds) {
+    PartitionMeta partitionMeta = partitionMetas.get(partId);
+    if (partitionMeta == null) {
+      return;
+    }
+    partitionMeta.setPss(psIds);
+  }
+
+  /**
+   * Get the master stored ps for the partition
+   *
+   * @param partId partition id
+   * @return the master stored ps
+   */
+  public ParameterServerId getMasterPs(int partId) {
+    PartitionMeta partitionMeta = partitionMetas.get(partId);
+    if (partitionMeta == null) {
+      return null;
+    }
+    return partitionMeta.getMasterPs();
+  }
+
+  /**
+   * Get matrix attributes
+   *
+   * @return matrix attributes
+   */
+  public Map<String, String> getAttributes() {
+    return matrixContext.getAttributes();
+  }
+
+  /**
+   * Get the block row number for the matrix
+   *
+   * @return the block row number for the matrix
+   */
+  public int getBlockRowNum() {
+    return matrixContext.getMaxRowNumInBlock();
+  }
+
+  /**
+   * Get the block column number for the matrix
+   *
+   * @return the block column number for the matrix
+   */
+  public long getBlockColNum() {
+    return matrixContext.getMaxColNumInBlock();
   }
 
   @Override
   public String toString() {
-    return "MatrixMeta [id=" + id + ", name=" + name + ", colNum=" + colNum + ", rowNum=" + rowNum
-        + ", rowType=" + rowType + "]";
+    StringBuilder sb = new StringBuilder();
+    sb.append("MatrixContext:").append(matrixContext).append("\n");
+    sb.append("partitions:").append("\n");
+    List<PartitionMeta> parts = new ArrayList<>(partitionMetas.values());
+    parts.sort((PartitionMeta p1, PartitionMeta p2) -> p1.getPartId() - p2.getPartId());
+    int size = parts.size();
+    sb.append("total partitoin number:" + size).append("\n");
+    for (int i = 0; i < size; i++) {
+      sb.append("partition ").append(parts.get(i).getPartId()).append(":").append(parts.get(i))
+          .append("\n");
+    }
+
+    return sb.toString();
   }
+
+  /**
+   * Remove the stored ps for all partitions
+   *
+   * @param psId ps id
+   */
+  public void removePs(ParameterServerId psId) {
+    for (PartitionMeta partMeta : partitionMetas.values()) {
+      partMeta.removePs(psId);
+    }
+  }
+
+  /**
+   * Add the stored ps for the partition
+   *
+   * @param partId partition id
+   * @param psId ps id
+   */
+  public void addPs(int partId, ParameterServerId psId) {
+    PartitionMeta partitionMeta = partitionMetas.get(partId);
+    if (partitionMeta == null) {
+      return;
+    }
+    partitionMeta.addReplicationPS(psId);
+  }
+
+  /**
+   * Get matrix value type class
+   *
+   * @return null if this parameter is not set
+   * @throws ClassNotFoundException if value class is not found
+   */
+  public Class<? extends IElement> getValueClass() throws ClassNotFoundException {
+    return matrixContext.getValueType();
+  }
+
+  /**
+   * Get matrix server partition class
+   *
+   * @return matrix server partition class
+   * @throws ClassNotFoundException if server partition class is not found
+   */
+  public Class<? extends IServerPartition> getPartitionClass() throws ClassNotFoundException {
+    return matrixContext.getPartitionClass();
+  }
+
+  /**
+   * Get matrix server partition storage class
+   *
+   * @return matrix server partition storage class, null means not set by user
+   * @throws ClassNotFoundException if server partition storage class is not found
+   */
+  public Class<? extends IServerPartitionStorage> getPartitionStorageClass()
+      throws ClassNotFoundException {
+    return matrixContext.getPartitionStorageClass();
+  }
+
+  /**
+   * Get PS Matrix initialization function
+   *
+   * @return PS Matrix initialization function
+   */
+  public PSMatrixInit getInitFunc() {
+    return matrixContext.getInitFunc();
+  }
+
+  /**
+   * Get total partition number
+   *
+   * @return total partition number
+   */
+  public int getPartitionNum() {
+    return partitionMetas.size();
+  }
+
+  /**
+   * Get all partitions that sorted by partition id
+   *
+   * @return all partitions that sorted by partition id
+   */
+  public PartitionKey[] getPartitionKeys() {
+    return partitionKeys;
+  }
+
+  public Class<? extends KeyHash> getRouterHash() {
+    return matrixContext.getKeyHasherClass();
+  }
+
+  public boolean isHash() {
+    return matrixContext.getPartitionerClass() == HashPartitioner.class;
+  }
+
+  public int getTotalPartNum() {
+    return totalPartNum;
+  }
+
+  public int getMatrixId() { return matrixContext.getMatrixId(); }
 }

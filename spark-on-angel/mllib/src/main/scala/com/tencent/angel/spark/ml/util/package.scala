@@ -1,12 +1,12 @@
 /*
  * Tencent is pleased to support the open source community by making Angel available.
  *
- * Copyright (C) 2017 THL A29 Limited, a Tencent company. All rights reserved.
+ * Copyright (C) 2017-2018 THL A29 Limited, a Tencent company. All rights reserved.
  *
- * Licensed under the BSD 3-Clause License (the "License"); you may not use this file except in
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in 
  * compliance with the License. You may obtain a copy of the License at
  *
- * https://opensource.org/licenses/BSD-3-Clause
+ * https://opensource.org/licenses/Apache-2.0
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License
  * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
@@ -15,25 +15,33 @@
  *
  */
 
+
 package com.tencent.angel.spark.ml
 
 import org.apache.spark.mllib.linalg.VectorUDT
 import org.apache.spark.sql.types._
+import org.apache.spark.ml.linalg.SQLDataTypes.{VectorType => MLVectorType}
 
 package object util {
 
   val MAX_INT_STR = Int.MaxValue.toString
 
-  val TDW_PREFIX = "tdw://"
   val HDFS_PREFIX = "hdfs://"
 
   val SPLIT_SEPARATOR = "\\s+|,"
   val KEY_VALUE_SEP = ":"
 
+  val unlabeledDefaultFeatExpr = s"0-${Int.MaxValue}"
+  val defaultFeatExpr = s"0-${Int.MaxValue}"
+  val labeledDefaultFeatExpr = s"1-${Int.MaxValue}"
+
+  val SEP_COMMA = ","
+  val SEP_HYPHEN = "-"
+
+
   object StorageType {
     val LOCAL = "LOCAL"
     val HDFS = "HDFS"
-    val TDW = "TDW"
   }
 
   object DataFormat {
@@ -57,6 +65,7 @@ package object util {
   object ActionType {
     val TRAIN = "train"
     val PREDICT = "predict"
+    val SERVING = "serving"
   }
 
   object ParamKeys {
@@ -108,7 +117,16 @@ package object util {
 
   val ONE_HOT_INSTANCE_ST = StructType(
     StructField(DFStruct.LABEL, StringType, false) ::
-      StructField(DFStruct.FEATURE, ArrayType(IntegerType, containsNull = false), false) ::
+      StructField(DFStruct.FEATURE, ArrayType(LongType, containsNull = false), false) ::
       Nil)
 
+  val LIBSVM_ST_ML = StructType(
+    StructField(DFStruct.LABEL, DoubleType, false) ::
+      StructField(DFStruct.FEATURE, MLVectorType, false) ::
+      Nil)
+
+  val LIBSVM_PREDICT_ST_ML = StructType(
+    StructField(DFStruct.ID, StringType, false) ::
+      StructField(DFStruct.FEATURE, MLVectorType, false) ::
+      Nil)
 }

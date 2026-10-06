@@ -2,7 +2,7 @@
 
 ## 1 libsvm格式
 
-每行文本表示一个样本，每个样本的格式为
+每行文本表示一个样本，每个字段以" "(空格)分隔，每行的文本格式
 ```
 label index1:value1 index2:value1 index3:value3 ...
 ```
@@ -14,8 +14,7 @@ label index1:value1 index2:value1 index3:value3 ...
   - 当输入数据是预测数据，label是样本的index；
 * index:value字段：
   - 特征index对应的value，index类型为Int，value类型为Double
-  - 特征的index，从0开始计数
-* 与标准的libsvm格式唯一的不同是：标准的libsvm要求index从1开始计数，而Angel的libsvm格式是从0开始计数。
+  - 特征的index，从1开始计数, 与标准的libsvm格式一致
 
 ```
 # libsvm样例数据
@@ -27,9 +26,9 @@ label index1:value1 index2:value1 index3:value3 ...
 
 ## 2 dummy格式
 
-每一行为一条记录(一个样本)，每个字段以","分隔，每行的文本格式
+每一行为一条记录(一个样本)，每个字段以" "分隔，每行的文本格式
 ```
-"label,index1,index2,index3"
+"label index1 index2 index3"
 ```
 * label字段
   - 字段类型：Int
@@ -42,7 +41,15 @@ label index1:value1 index2:value1 index3:value3 ...
 
 ```
 # 数据格式样例
-0,3,7,999,666
-1,0,2,88,77
+0 3 7 999 666
+1 0 2 88 77
   ...
 ```
+
+如果输入数据的分隔符不是空格, 可以用如下参数来指定分隔符, 如指定主逗号:
+> ml.data.splitor=,
+
+对于Softmax回归等多分类算法, 标签要求从0开始, 其它二分类算法标签为正负1. 如果要对标签进行转换, 可以用下面的参数:
+* ml.data.label.trans.class: 是否要对标签进行转换, 默认为"NoTrans", 可选项为"ZeroOneTrans"(转为0-1), "PosNegTrans"(转为正负1), "AddOneTrans"(加1), "SubOneTrans"(减1). 
+* ml.data.label.trans.threshold: "ZeroOneTrans", "PosNegTrans"这两种转还要以设一个阈值, 大于阈值的为1, 阈值默认为0
+

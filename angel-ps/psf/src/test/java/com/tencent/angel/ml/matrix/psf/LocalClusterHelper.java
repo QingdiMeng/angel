@@ -1,18 +1,20 @@
 /*
  * Tencent is pleased to support the open source community by making Angel available.
  *
- * Copyright (C) 2017 THL A29 Limited, a Tencent company. All rights reserved.
+ * Copyright (C) 2017-2018 THL A29 Limited, a Tencent company. All rights reserved.
  *
- * Licensed under the BSD 3-Clause License (the "License"); you may not use this file except in
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in 
  * compliance with the License. You may obtain a copy of the License at
  *
- * https://opensource.org/licenses/BSD-3-Clause
+ * https://opensource.org/licenses/Apache-2.0
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License
  * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
+ *
  */
+
 
 package com.tencent.angel.ml.matrix.psf;
 
@@ -21,6 +23,7 @@ import com.tencent.angel.client.AngelClientFactory;
 import com.tencent.angel.conf.AngelConf;
 import com.tencent.angel.conf.MatrixConf;
 import com.tencent.angel.ml.matrix.MatrixContext;
+import com.tencent.angel.ml.matrix.RowType;
 import com.tencent.angel.protobuf.generated.MLProtos;
 import com.tencent.angel.ps.PSAttemptId;
 import com.tencent.angel.ps.ParameterServerId;
@@ -63,6 +66,10 @@ public class LocalClusterHelper {
     conf.setInt(AngelConf.ANGEL_PS_NUMBER, 1);
     conf.setInt(AngelConf.ANGEL_WORKER_TASK_NUMBER, 2);
 
+    conf.setInt(AngelConf.ANGEL_PSAGENT_CACHE_SYNC_TIMEINTERVAL_MS, 10);
+    conf.setInt(AngelConf.ANGEL_WORKER_HEARTBEAT_INTERVAL_MS, 1000);
+    conf.setInt(AngelConf.ANGEL_PS_HEARTBEAT_INTERVAL_MS, 1000);
+
     // get a angel client
     angelClient = AngelClientFactory.get(conf);
 
@@ -73,24 +80,25 @@ public class LocalClusterHelper {
     mMatrix.setColNum(1000);
     mMatrix.setMaxRowNumInBlock(10);
     mMatrix.setMaxColNumInBlock(500);
-    mMatrix.setRowType(MLProtos.RowType.T_INT_DENSE);
+    mMatrix.setRowType(RowType.T_INT_DENSE);
     mMatrix.set(MatrixConf.MATRIX_OPLOG_ENABLEFILTER, "false");
     mMatrix.set(MatrixConf.MATRIX_HOGWILD, "true");
     mMatrix.set(MatrixConf.MATRIX_AVERAGE, "false");
     mMatrix.set(MatrixConf.MATRIX_OPLOG_TYPE, "DENSE_INT");
     angelClient.addMatrix(mMatrix);
 
-    mMatrix.setName("w2");
-    mMatrix.setRowNum(10);
-    mMatrix.setColNum(100);
-    mMatrix.setMaxRowNumInBlock(5);
-    mMatrix.setMaxColNumInBlock(50);
-    mMatrix.setRowType(MLProtos.RowType.T_DOUBLE_DENSE);
-    mMatrix.set(MatrixConf.MATRIX_OPLOG_ENABLEFILTER, "false");
-    mMatrix.set(MatrixConf.MATRIX_HOGWILD, "false");
-    mMatrix.set(MatrixConf.MATRIX_AVERAGE, "false");
-    mMatrix.set(MatrixConf.MATRIX_OPLOG_TYPE, "DENSE_DOUBLE");
-    angelClient.addMatrix(mMatrix);
+    MatrixContext mMatrix2 = new MatrixContext();
+    mMatrix2.setName("w2");
+    mMatrix2.setRowNum(10);
+    mMatrix2.setColNum(100);
+    mMatrix2.setMaxRowNumInBlock(5);
+    mMatrix2.setMaxColNumInBlock(50);
+    mMatrix2.setRowType(RowType.T_DOUBLE_DENSE);
+    mMatrix2.set(MatrixConf.MATRIX_OPLOG_ENABLEFILTER, "false");
+    mMatrix2.set(MatrixConf.MATRIX_HOGWILD, "false");
+    mMatrix2.set(MatrixConf.MATRIX_AVERAGE, "false");
+    mMatrix2.set(MatrixConf.MATRIX_OPLOG_TYPE, "DENSE_DOUBLE");
+    angelClient.addMatrix(mMatrix2);
 
     angelClient.startPSServer();
     angelClient.run();

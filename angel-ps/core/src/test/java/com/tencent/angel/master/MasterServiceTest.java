@@ -1,24 +1,26 @@
 /*
  * Tencent is pleased to support the open source community by making Angel available.
- * 
- * Copyright (C) 2017 THL A29 Limited, a Tencent company. All rights reserved.
- * 
- * Licensed under the BSD 3-Clause License (the "License"); you may not use this file except in
+ *
+ * Copyright (C) 2017-2018 THL A29 Limited, a Tencent company. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in 
  * compliance with the License. You may obtain a copy of the License at
- * 
- * https://opensource.org/licenses/BSD-3-Clause
- * 
+ *
+ * https://opensource.org/licenses/Apache-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License
  * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
+ *
  */
+
 
 package com.tencent.angel.master;
 
 import com.tencent.angel.client.AngelClient;
 import com.tencent.angel.client.AngelClientFactory;
-import com.tencent.angel.common.Location;
+import com.tencent.angel.common.location.Location;
 import com.tencent.angel.conf.AngelConf;
 import com.tencent.angel.conf.MatrixConf;
 import com.tencent.angel.ipc.TConnection;
@@ -28,10 +30,12 @@ import com.tencent.angel.master.task.AMTask;
 import com.tencent.angel.master.task.AMTaskManager;
 import com.tencent.angel.master.worker.attempt.WorkerAttempt;
 import com.tencent.angel.ml.matrix.MatrixContext;
+import com.tencent.angel.ml.matrix.RowType;
 import com.tencent.angel.protobuf.ProtobufUtil;
 import com.tencent.angel.protobuf.generated.MLProtos;
 import com.tencent.angel.protobuf.generated.MLProtos.LocationProto;
 import com.tencent.angel.protobuf.generated.MLProtos.Pair;
+import com.tencent.angel.protobuf.generated.PSAgentMasterServiceProtos;
 import com.tencent.angel.protobuf.generated.WorkerMasterServiceProtos.*;
 import com.tencent.angel.ps.PSAttemptId;
 import com.tencent.angel.ps.ParameterServerId;
@@ -56,8 +60,7 @@ import java.util.Map;
 
 import static org.junit.Assert.*;
 
-@RunWith(MockitoJUnitRunner.class)
-public class MasterServiceTest {
+@RunWith(MockitoJUnitRunner.class) public class MasterServiceTest {
   private static final Log LOG = LogFactory.getLog(MasterServiceTest.class);
   private static final String LOCAL_FS = LocalFileSystem.DEFAULT_FS;
   private static final String TMP_PATH = System.getProperty("java.io.tmpdir", "/tmp");
@@ -75,9 +78,8 @@ public class MasterServiceTest {
   }
 
 
-  @Before
-  public void setup() throws Exception {
-    try{
+  @Before public void setup() throws Exception {
+    try {
       // set basic configuration keys
       Configuration conf = new Configuration();
       conf.setBoolean("mapred.mapper.new-api", true);
@@ -96,6 +98,9 @@ public class MasterServiceTest {
       conf.setInt(AngelConf.ANGEL_PS_NUMBER, 1);
       conf.setInt(AngelConf.ANGEL_WORKER_TASK_NUMBER, 2);
 
+      conf.setInt(AngelConf.ANGEL_WORKER_HEARTBEAT_INTERVAL_MS, 1000);
+      conf.setInt(AngelConf.ANGEL_PS_HEARTBEAT_INTERVAL_MS, 1000);
+
       // get a angel client
       angelClient = AngelClientFactory.get(conf);
 
@@ -106,24 +111,25 @@ public class MasterServiceTest {
       mMatrix.setColNum(100000);
       mMatrix.setMaxRowNumInBlock(1);
       mMatrix.setMaxColNumInBlock(50000);
-      mMatrix.setRowType(MLProtos.RowType.T_INT_DENSE);
+      mMatrix.setRowType(RowType.T_INT_DENSE);
       mMatrix.set(MatrixConf.MATRIX_OPLOG_ENABLEFILTER, "false");
       mMatrix.set(MatrixConf.MATRIX_HOGWILD, "true");
       mMatrix.set(MatrixConf.MATRIX_AVERAGE, "false");
       mMatrix.set(MatrixConf.MATRIX_OPLOG_TYPE, "DENSE_INT");
       angelClient.addMatrix(mMatrix);
 
-      mMatrix.setName("w2");
-      mMatrix.setRowNum(1);
-      mMatrix.setColNum(100000);
-      mMatrix.setMaxRowNumInBlock(1);
-      mMatrix.setMaxColNumInBlock(50000);
-      mMatrix.setRowType(MLProtos.RowType.T_DOUBLE_DENSE);
-      mMatrix.set(MatrixConf.MATRIX_OPLOG_ENABLEFILTER, "false");
-      mMatrix.set(MatrixConf.MATRIX_HOGWILD, "false");
-      mMatrix.set(MatrixConf.MATRIX_AVERAGE, "false");
-      mMatrix.set(MatrixConf.MATRIX_OPLOG_TYPE, "DENSE_DOUBLE");
-      angelClient.addMatrix(mMatrix);
+      MatrixContext mMatrix2 = new MatrixContext();
+      mMatrix2.setName("w2");
+      mMatrix2.setRowNum(1);
+      mMatrix2.setColNum(100000);
+      mMatrix2.setMaxRowNumInBlock(1);
+      mMatrix2.setMaxColNumInBlock(50000);
+      mMatrix2.setRowType(RowType.T_DOUBLE_DENSE);
+      mMatrix2.set(MatrixConf.MATRIX_OPLOG_ENABLEFILTER, "false");
+      mMatrix2.set(MatrixConf.MATRIX_HOGWILD, "false");
+      mMatrix2.set(MatrixConf.MATRIX_AVERAGE, "false");
+      mMatrix2.set(MatrixConf.MATRIX_OPLOG_TYPE, "DENSE_DOUBLE");
+      angelClient.addMatrix(mMatrix2);
 
       angelClient.startPSServer();
       angelClient.run();
@@ -141,9 +147,8 @@ public class MasterServiceTest {
     }
   }
 
-  @Test
-  public void testMasterService() throws Exception {
-    try{
+  @Test public void testMasterService() throws Exception {
+    try {
       LOG.info("===========================testMasterService===============================");
       Worker worker = LocalClusterContext.get().getWorker(worker0Attempt0Id).getWorker();
       Location masterLoc =
@@ -152,13 +157,17 @@ public class MasterServiceTest {
       TConnection connection = TConnectionManager.getConnection(worker.getConf());
       MasterProtocol master = connection.getMasterService(masterLoc.getIp(), masterLoc.getPort());
 
+      int psAgentId = master
+        .getPSAgentId(null, PSAgentMasterServiceProtos.GetPSAgentIdRequest.getDefaultInstance())
+        .getPsAgentId();
+
       // worker register
       WorkerAttemptId worker1Attempt0Id =
         new WorkerAttemptId(new WorkerId(new WorkerGroupId(1), 0), 0);
       WorkerRegisterRequest registeRequest =
-        WorkerRegisterRequest.newBuilder()
+        WorkerRegisterRequest.newBuilder().setPsAgentId(psAgentId)
           .setWorkerAttemptId(ProtobufUtil.convertToIdProto(worker1Attempt0Id))
-          .setLocation(LocationProto.newBuilder().setIp("10.10.10.10").setPort(10000).build())
+          .setLocation(LocationProto.newBuilder().setIp("0.0.0.0").setPort(10000).build())
           .build();
       WorkerRegisterResponse registerResponse = master.workerRegister(null, registeRequest);
       assertTrue(registerResponse.getCommand() == WorkerCommandProto.W_SHUTDOWN);
@@ -204,8 +213,8 @@ public class MasterServiceTest {
 
       AngelApplicationMaster angelAppMaster = LocalClusterContext.get().getMaster().getAppMaster();
       WorkerAttempt worker0Attempt =
-        angelAppMaster.getAppContext().getWorkerManager()
-          .getWorker(worker0Attempt0Id.getWorkerId()).getWorkerAttempt(worker0Attempt0Id);
+        angelAppMaster.getAppContext().getWorkerManager().getWorker(worker0Attempt0Id.getWorkerId())
+          .getWorkerAttempt(worker0Attempt0Id);
       assertTrue(worker0Attempt != null);
       Map<String, String> workerMetrics = worker0Attempt.getMetrics();
       String valueForWorkerKey1 = workerMetrics.get("worker_key1");
@@ -238,12 +247,11 @@ public class MasterServiceTest {
       assertEquals(task1.getProgress(), 0.30f, 0.000001);
     } catch (Exception x) {
       LOG.error("run testMasterService failed ", x);
-      throw  x;
+      throw x;
     }
   }
 
-  @After
-  public void stop() throws Exception {
+  @After public void stop() throws Exception {
     try {
       LOG.info("stop local cluster");
       angelClient.stop();

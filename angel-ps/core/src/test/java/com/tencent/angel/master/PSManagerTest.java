@@ -1,57 +1,56 @@
 /*
  * Tencent is pleased to support the open source community by making Angel available.
- * 
- * Copyright (C) 2017 THL A29 Limited, a Tencent company. All rights reserved.
- * 
- * Licensed under the BSD 3-Clause License (the "License"); you may not use this file except in
+ *
+ * Copyright (C) 2017-2018 THL A29 Limited, a Tencent company. All rights reserved.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in 
  * compliance with the License. You may obtain a copy of the License at
- * 
- * https://opensource.org/licenses/BSD-3-Clause
- * 
+ *
+ * https://opensource.org/licenses/Apache-2.0
+ *
  * Unless required by applicable law or agreed to in writing, software distributed under the License
  * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
  * or implied. See the License for the specific language governing permissions and limitations under
  * the License.
+ *
  */
+
 
 package com.tencent.angel.master;
 
 import com.tencent.angel.client.AngelClient;
 import com.tencent.angel.client.AngelClientFactory;
-import com.tencent.angel.common.Location;
+import com.tencent.angel.common.location.Location;
 import com.tencent.angel.conf.AngelConf;
 import com.tencent.angel.conf.MatrixConf;
 import com.tencent.angel.exception.AngelException;
 import com.tencent.angel.ipc.TConnection;
 import com.tencent.angel.ipc.TConnectionManager;
 import com.tencent.angel.localcluster.LocalClusterContext;
-import com.tencent.angel.master.app.AppEvent;
-import com.tencent.angel.master.app.AppEventType;
 import com.tencent.angel.master.app.AppState;
 import com.tencent.angel.master.ps.ParameterServerManager;
 import com.tencent.angel.master.ps.attempt.PSAttempt;
 import com.tencent.angel.master.ps.attempt.PSAttemptStateInternal;
 import com.tencent.angel.master.ps.ps.AMParameterServer;
 import com.tencent.angel.master.ps.ps.AMParameterServerState;
-import com.tencent.angel.ml.math.vector.DenseIntVector;
+import com.tencent.angel.ml.math2.storage.IntIntDenseVectorStorage;
+import com.tencent.angel.ml.math2.vector.IntIntVector;
 import com.tencent.angel.ml.matrix.MatrixContext;
+import com.tencent.angel.ml.matrix.MatrixMeta;
+import com.tencent.angel.ml.matrix.RowType;
 import com.tencent.angel.protobuf.ProtobufUtil;
-import com.tencent.angel.protobuf.generated.MLProtos;
 import com.tencent.angel.protobuf.generated.MLProtos.MatrixClock;
-import com.tencent.angel.protobuf.generated.MLProtos.MatrixStatus;
 import com.tencent.angel.protobuf.generated.MLProtos.Pair;
 import com.tencent.angel.protobuf.generated.PSAgentMasterServiceProtos.TaskClockRequest;
 import com.tencent.angel.protobuf.generated.PSAgentMasterServiceProtos.TaskIterationRequest;
 import com.tencent.angel.protobuf.generated.PSMasterServiceProtos.*;
-import com.tencent.angel.protobuf.generated.WorkerMasterServiceProtos.WorkerCommandProto;
-import com.tencent.angel.protobuf.generated.WorkerMasterServiceProtos.WorkerDoneRequest;
-import com.tencent.angel.protobuf.generated.WorkerMasterServiceProtos.WorkerDoneResponse;
 import com.tencent.angel.ps.PSAttemptId;
 import com.tencent.angel.ps.ParameterServerId;
-import com.tencent.angel.ps.impl.MatrixPartitionManager;
-import com.tencent.angel.ps.impl.ParameterServer;
-import com.tencent.angel.ps.impl.matrix.ServerMatrix;
+import com.tencent.angel.ps.ParameterServer;
+import com.tencent.angel.ps.meta.PSMatrixMetaManager;
+import com.tencent.angel.ps.storage.matrix.ServerMatrix;
 import com.tencent.angel.psagent.matrix.MatrixClient;
+import com.tencent.angel.psagent.task.TaskContext;
 import com.tencent.angel.worker.Worker;
 import com.tencent.angel.worker.WorkerAttemptId;
 import com.tencent.angel.worker.WorkerGroupId;
@@ -91,8 +90,7 @@ public class PSManagerTest {
     PropertyConfigurator.configure("../conf/log4j.properties");
   }
 
-  @Before
-  public void setup() throws Exception {
+  @Before public void setup() throws Exception {
     try {
       // set basic configuration keys
       Configuration conf = new Configuration();
@@ -111,7 +109,10 @@ public class PSManagerTest {
       conf.setInt(AngelConf.ANGEL_WORKERGROUP_NUMBER, 1);
       conf.setInt(AngelConf.ANGEL_PS_NUMBER, 1);
       conf.setInt(AngelConf.ANGEL_WORKER_TASK_NUMBER, 2);
-      conf.setInt(AngelConf.ANGEL_PS_BACKUP_INTERVAL_MS, 5000);
+      conf.setInt(AngelConf.ANGEL_PS_BACKUP_INTERVAL_MS, 1000);
+      conf.setInt(AngelConf.ANGEL_WORKER_HEARTBEAT_INTERVAL_MS, 1000);
+      conf.setInt(AngelConf.ANGEL_PS_HEARTBEAT_INTERVAL_MS, 1000);
+
 
       // get a angel client
       angelClient = AngelClientFactory.get(conf);
@@ -123,24 +124,23 @@ public class PSManagerTest {
       mMatrix.setColNum(100000);
       mMatrix.setMaxRowNumInBlock(1);
       mMatrix.setMaxColNumInBlock(50000);
-      mMatrix.setRowType(MLProtos.RowType.T_INT_DENSE);
+      mMatrix.setRowType(RowType.T_INT_DENSE);
       mMatrix.set(MatrixConf.MATRIX_OPLOG_ENABLEFILTER, "false");
       mMatrix.set(MatrixConf.MATRIX_HOGWILD, "true");
       mMatrix.set(MatrixConf.MATRIX_AVERAGE, "false");
-      mMatrix.set(MatrixConf.MATRIX_OPLOG_TYPE, "DENSE_INT");
       angelClient.addMatrix(mMatrix);
 
-      mMatrix.setName("w2");
-      mMatrix.setRowNum(1);
-      mMatrix.setColNum(100000);
-      mMatrix.setMaxRowNumInBlock(1);
-      mMatrix.setMaxColNumInBlock(50000);
-      mMatrix.setRowType(MLProtos.RowType.T_DOUBLE_DENSE);
-      mMatrix.set(MatrixConf.MATRIX_OPLOG_ENABLEFILTER, "false");
-      mMatrix.set(MatrixConf.MATRIX_HOGWILD, "false");
-      mMatrix.set(MatrixConf.MATRIX_AVERAGE, "false");
-      mMatrix.set(MatrixConf.MATRIX_OPLOG_TYPE, "DENSE_DOUBLE");
-      angelClient.addMatrix(mMatrix);
+      MatrixContext mMatrix2 = new MatrixContext();
+      mMatrix2.setName("w2");
+      mMatrix2.setRowNum(1);
+      mMatrix2.setColNum(100000);
+      mMatrix2.setMaxRowNumInBlock(1);
+      mMatrix2.setMaxColNumInBlock(50000);
+      mMatrix2.setRowType(RowType.T_DOUBLE_DENSE);
+      mMatrix2.set(MatrixConf.MATRIX_OPLOG_ENABLEFILTER, "false");
+      mMatrix2.set(MatrixConf.MATRIX_HOGWILD, "false");
+      mMatrix2.set(MatrixConf.MATRIX_AVERAGE, "false");
+      angelClient.addMatrix(mMatrix2);
 
       angelClient.startPSServer();
       angelClient.run();
@@ -158,8 +158,7 @@ public class PSManagerTest {
     }
   }
 
-  @Test
-  public void testPSManager() throws  Exception {
+  @Test public void testPSManager() throws Exception {
     try {
       LOG.info("===========================testPSManager===============================");
       AngelApplicationMaster angelAppMaster = LocalClusterContext.get().getMaster().getAppMaster();
@@ -183,8 +182,7 @@ public class PSManagerTest {
     }
   }
 
-  @Test
-  public void testPSReport() throws Exception {
+  @Test public void testPSReport() throws Exception {
     try {
       ParameterServer ps = LocalClusterContext.get().getPS(psAttempt0Id).getPS();
       Location masterLoc = ps.getMasterLocation();
@@ -200,17 +198,17 @@ public class PSManagerTest {
       pairBuilder.setValue("200");
       builder.addMetrics(pairBuilder.build());
 
-      MatrixReport.Builder matrixBuilder = MatrixReport.newBuilder();
+      MatrixReportProto.Builder matrixBuilder = MatrixReportProto.newBuilder();
       ConcurrentHashMap<Integer, ServerMatrix> matrixIdMap =
-        ps.getMatrixPartitionManager().getMatrixIdMap();
+        ps.getMatrixStorageManager().getMatrices();
       for (Entry<Integer, ServerMatrix> matrixEntry : matrixIdMap.entrySet()) {
         builder.addMatrixReports((matrixBuilder.setMatrixId(matrixEntry.getKey())
-          .setMatrixName(matrixEntry.getValue().getName()).setStatus(MatrixStatus.M_OK).build()));
+          .setMatrixName(matrixEntry.getValue().getName())));
       }
 
       PSReportResponse response = master.psReport(null, builder.build());
       assertEquals(response.getPsCommand(), PSCommandProto.PSCOMMAND_OK);
-      assertEquals(response.getNeedCreateMatrixIdsCount(), 0);
+      assertEquals(response.getNeedCreateMatricesCount(), 0);
       assertEquals(response.getNeedReleaseMatrixIdsCount(), 0);
       AngelApplicationMaster angelAppMaster = LocalClusterContext.get().getMaster().getAppMaster();
       ParameterServerManager psManager = angelAppMaster.getAppContext().getParameterServerManager();
@@ -230,58 +228,17 @@ public class PSManagerTest {
     }
   }
 
-  @SuppressWarnings("unchecked")
-  @Test
-  public void testPSDone() throws Exception {
+  @Test public void testPSError() throws Exception {
     try {
-      AngelApplicationMaster angelAppMaster = LocalClusterContext.get().getMaster().getAppMaster();
-      ParameterServer ps = LocalClusterContext.get().getPS(psAttempt0Id).getPS();
-      Location masterLoc = ps.getMasterLocation();
-      TConnection connection = TConnectionManager.getConnection(ps.getConf());
-      MasterProtocol master = connection.getMasterService(masterLoc.getIp(), masterLoc.getPort());
-
-      WorkerDoneRequest workerRequest =
-        WorkerDoneRequest.newBuilder()
-          .setWorkerAttemptId(ProtobufUtil.convertToIdProto(worker0Attempt0Id)).build();
-      WorkerDoneResponse workerResponse = master.workerDone(null, workerRequest);
-      assertEquals(workerResponse.getCommand(), WorkerCommandProto.W_SUCCESS);
-      Thread.sleep(5000);
-
-      angelAppMaster.getAppContext().getEventHandler().handle(new AppEvent(AppEventType.COMMIT));
-
-      PSDoneRequest request =
-        PSDoneRequest.newBuilder().setPsAttemptId(ProtobufUtil.convertToIdProto(psAttempt0Id))
-          .build();
-      master.psDone(null, request);
-
-      Thread.sleep(5000);
-
-      ParameterServerManager psManager = angelAppMaster.getAppContext().getParameterServerManager();
-      AMParameterServer amPs = psManager.getParameterServer(psId);
-      PSAttempt psAttempt = amPs.getPSAttempt(psAttempt0Id);
-      assertEquals(psAttempt.getInternalState(), PSAttemptStateInternal.SUCCESS);
-
-      assertTrue(amPs.getState() == AMParameterServerState.SUCCESS);
-      assertEquals(amPs.getNextAttemptNumber(), 1);
-      assertNull(amPs.getRunningAttemptId());
-      assertEquals(amPs.getSuccessAttemptId(), psAttempt0Id);
-      assertEquals(amPs.getPSAttempts().size(), 1);
-    } catch (Exception x) {
-      LOG.error("run testPSDone failed ", x);
-      throw x;
-    }
-  }
-
-  @Test
-  public void testPSError() throws Exception {
-    try {
-      int heartbeatInterval = LocalClusterContext.get().getConf().getInt(AngelConf.ANGEL_PS_HEARTBEAT_INTERVAL_MS,
-        AngelConf.DEFAULT_ANGEL_PS_HEARTBEAT_INTERVAL_MS);
+      int heartbeatInterval = LocalClusterContext.get().getConf()
+        .getInt(AngelConf.ANGEL_PS_HEARTBEAT_INTERVAL_MS,
+          AngelConf.DEFAULT_ANGEL_PS_HEARTBEAT_INTERVAL_MS);
       AngelApplicationMaster angelAppMaster = LocalClusterContext.get().getMaster().getAppMaster();
       ParameterServerManager psManager = angelAppMaster.getAppContext().getParameterServerManager();
       AMParameterServer amPs = psManager.getParameterServer(psId);
       PSAttempt psAttempt0 = amPs.getPSAttempt(psAttempt0Id);
       ParameterServer ps = LocalClusterContext.get().getPS(psAttempt0Id).getPS();
+      Worker worker = LocalClusterContext.get().getWorker(worker0Attempt0Id).getWorker();
       int w1Id = angelAppMaster.getAppContext().getMatrixMetaManager().getMatrix("w1").getId();
       int w2Id = angelAppMaster.getAppContext().getMatrixMetaManager().getMatrix("w2").getId();
 
@@ -300,38 +257,31 @@ public class PSManagerTest {
       int w1Clock = (task0w1Clock < task1w1Clock) ? task0w1Clock : task1w1Clock;
       int w2Clock = (task0w2Clock < task1w2Clock) ? task0w2Clock : task1w2Clock;
 
+      TaskContext task0Context =
+        worker.getTaskManager().getRunningTask().get(task0Id).getTaskContext().getContext();
+      TaskContext task1Context =
+        worker.getTaskManager().getRunningTask().get(task1Id).getTaskContext().getContext();
+
       master.taskIteration(null, TaskIterationRequest.newBuilder().setIteration(task0Iteration)
         .setTaskId(ProtobufUtil.convertToIdProto(task0Id)).build());
       master.taskIteration(null, TaskIterationRequest.newBuilder().setIteration(task1Iteration)
         .setTaskId(ProtobufUtil.convertToIdProto(task1Id)).build());
-      master.taskClock(
-        null,
-        TaskClockRequest
-          .newBuilder()
-          .setTaskId(ProtobufUtil.convertToIdProto(task0Id))
-          .setMatrixClock(
-            MatrixClock.newBuilder().setMatrixId(w1Id).setClock(task0w1Clock).build()).build());
-      master.taskClock(
-        null,
-        TaskClockRequest
-          .newBuilder()
-          .setTaskId(ProtobufUtil.convertToIdProto(task0Id))
-          .setMatrixClock(
-            MatrixClock.newBuilder().setMatrixId(w2Id).setClock(task0w2Clock).build()).build());
-      master.taskClock(
-        null,
-        TaskClockRequest
-          .newBuilder()
-          .setTaskId(ProtobufUtil.convertToIdProto(task1Id))
-          .setMatrixClock(
-            MatrixClock.newBuilder().setMatrixId(w1Id).setClock(task1w1Clock).build()).build());
-      master.taskClock(
-        null,
-        TaskClockRequest
-          .newBuilder()
-          .setTaskId(ProtobufUtil.convertToIdProto(task1Id))
-          .setMatrixClock(
-            MatrixClock.newBuilder().setMatrixId(w2Id).setClock(task1w2Clock).build()).build());
+      master.taskClock(null,
+        TaskClockRequest.newBuilder().setTaskId(ProtobufUtil.convertToIdProto(task0Id))
+          .setMatrixClock(MatrixClock.newBuilder().setMatrixId(w1Id).setClock(task0w1Clock).build())
+          .build());
+      master.taskClock(null,
+        TaskClockRequest.newBuilder().setTaskId(ProtobufUtil.convertToIdProto(task0Id))
+          .setMatrixClock(MatrixClock.newBuilder().setMatrixId(w2Id).setClock(task0w2Clock).build())
+          .build());
+      master.taskClock(null,
+        TaskClockRequest.newBuilder().setTaskId(ProtobufUtil.convertToIdProto(task1Id))
+          .setMatrixClock(MatrixClock.newBuilder().setMatrixId(w1Id).setClock(task1w1Clock).build())
+          .build());
+      master.taskClock(null,
+        TaskClockRequest.newBuilder().setTaskId(ProtobufUtil.convertToIdProto(task1Id))
+          .setMatrixClock(MatrixClock.newBuilder().setMatrixId(w2Id).setClock(task1w2Clock).build())
+          .build());
 
       assertEquals(amPs.getMaxAttempts(), 4);
       PSAttemptId psAttempt1Id = new PSAttemptId(psId, 1);
@@ -361,37 +311,36 @@ public class PSManagerTest {
       assertEquals(diagnostics.get(0), psAttempt0Id + " failed due to: out of memory");
 
       ps = LocalClusterContext.get().getPS(psAttempt1Id).getPS();
+
       checkMatrixInfo(ps, w1Id, w2Id, w1Clock, w2Clock);
 
-      Worker worker = LocalClusterContext.get().getWorker(worker0Attempt0Id).getWorker();
       MatrixClient w1Task0Client = worker.getPSAgent().getMatrixClient("w1", 0);
       MatrixClient w1Task1Client = worker.getPSAgent().getMatrixClient("w1", 1);
+
       int matrixW1Id = w1Task0Client.getMatrixId();
 
-      int [] delta = new int[100000];
-      for(int i = 0; i < 100000; i++) {
+      int[] delta = new int[100000];
+      for (int i = 0; i < 100000; i++) {
         delta[i] = 2;
       }
 
-      DenseIntVector deltaVec = new DenseIntVector(100000, delta);
+      IntIntVector deltaVec = new IntIntVector(100000, new IntIntDenseVectorStorage(delta));
       deltaVec.setMatrixId(matrixW1Id);
       deltaVec.setRowId(0);
       w1Task0Client.increment(deltaVec);
 
-      deltaVec = new DenseIntVector(100000, delta);
+      deltaVec = new IntIntVector(100000, new IntIntDenseVectorStorage(delta));
       deltaVec.setMatrixId(matrixW1Id);
       deltaVec.setRowId(0);
       w1Task1Client.increment(deltaVec);
 
       w1Task0Client.clock().get();
       w1Task1Client.clock().get();
+      ps = LocalClusterContext.get().getPS(psAttempt1Id).getPS();
 
-      int snapshotInterval =
-        LocalClusterContext
-          .get()
-          .getConf()
-          .getInt(AngelConf.ANGEL_PS_BACKUP_INTERVAL_MS,
-            AngelConf.DEFAULT_ANGEL_PS_BACKUP_INTERVAL_MS);
+      int snapshotInterval = LocalClusterContext.get().getConf()
+        .getInt(AngelConf.ANGEL_PS_BACKUP_INTERVAL_MS,
+          AngelConf.DEFAULT_ANGEL_PS_BACKUP_INTERVAL_MS);
 
       Thread.sleep(snapshotInterval * 2);
 
@@ -419,9 +368,9 @@ public class PSManagerTest {
       assertEquals(diagnostics.get(1), psAttempt1Id + " failed due to: out of memory");
 
       ps = LocalClusterContext.get().getPS(psAttempt2Id).getPS();
-      checkMatrixInfo(ps, w1Id, w2Id, w1Clock, w2Clock);
+      checkMatrixInfo(ps, w1Id, w2Id, w1Clock + 1, w2Clock);
 
-      assertEquals(sum((DenseIntVector) w1Task0Client.getRow(0)), 400000);
+      assertEquals(sum((IntIntVector) w1Task0Client.getRow(0)), 400000);
 
       // attempt1
       ps.stop(-1);
@@ -447,8 +396,8 @@ public class PSManagerTest {
       assertEquals(diagnostics.get(1), psAttempt1Id + " failed due to: out of memory");
       assertEquals(diagnostics.get(2), psAttempt2Id + " failed due to: out of memory");
 
-      ps = LocalClusterContext.get().getPS(psAttempt1Id).getPS();
-      checkMatrixInfo(ps, w1Id, w2Id, w1Clock, w2Clock);
+      ps = LocalClusterContext.get().getPS(psAttempt3Id).getPS();
+      checkMatrixInfo(ps, w1Id, w2Id, w1Clock + 1, w2Clock);
 
       ps.stop(-1);
       request =
@@ -478,56 +427,52 @@ public class PSManagerTest {
   }
 
   private void checkMatrixInfo(ParameterServer ps, int w1Id, int w2Id, int w1Clock, int w2Clock) {
-    MatrixPartitionManager matrixPartManager = ps.getMatrixPartitionManager();
-    ConcurrentHashMap<Integer, ServerMatrix> matrixIdMap = matrixPartManager.getMatrixIdMap();
-    ServerMatrix sw1 = matrixIdMap.get(w1Id);
-    ServerMatrix sw2 = matrixIdMap.get(w2Id);
+    PSMatrixMetaManager matrixPartManager = ps.getMatrixMetaManager();
+
+    Map<Integer, MatrixMeta> matrixIdMap = matrixPartManager.getMatrixMetas();
+    MatrixMeta sw1 = matrixIdMap.get(w1Id);
+    MatrixMeta sw2 = matrixIdMap.get(w2Id);
     assertNotNull(sw1);
     assertNotNull(sw2);
-    assertEquals(sw1.getPartition(0).getPartitionKey().getStartRow(), 0);
-    assertEquals(sw1.getPartition(0).getPartitionKey().getEndRow(), 1);
-    assertEquals(sw1.getPartition(0).getPartitionKey().getStartCol(), 0);
-    assertEquals(sw1.getPartition(0).getPartitionKey().getEndCol(), 50000);
-    assertEquals(sw1.getPartition(0).getPartitionKey().getMatrixId(), w1Id);
-    assertEquals(sw1.getPartition(0).getPartitionKey().getPartitionId(), 0);
-    assertEquals(sw1.getPartition(0).getClock(), w1Clock);
+    assertEquals(sw1.getPartitionMeta(0).getPartitionKey().getStartRow(), 0);
+    assertEquals(sw1.getPartitionMeta(0).getPartitionKey().getEndRow(), 1);
+    assertEquals(sw1.getPartitionMeta(0).getPartitionKey().getStartCol(), 0);
+    assertEquals(sw1.getPartitionMeta(0).getPartitionKey().getEndCol(), 50000);
+    assertEquals(sw1.getPartitionMeta(0).getPartitionKey().getMatrixId(), w1Id);
+    assertEquals(sw1.getPartitionMeta(0).getPartitionKey().getPartitionId(), 0);
 
-    assertEquals(sw1.getPartition(1).getPartitionKey().getStartRow(), 0);
-    assertEquals(sw1.getPartition(1).getPartitionKey().getEndRow(), 1);
-    assertEquals(sw1.getPartition(1).getPartitionKey().getStartCol(), 50000);
-    assertEquals(sw1.getPartition(1).getPartitionKey().getEndCol(), 100000);
-    assertEquals(sw1.getPartition(1).getPartitionKey().getMatrixId(), w1Id);
-    assertEquals(sw1.getPartition(1).getPartitionKey().getPartitionId(), 1);
-    assertEquals(sw1.getPartition(1).getClock(), w1Clock);
+    assertEquals(sw1.getPartitionMeta(1).getPartitionKey().getStartRow(), 0);
+    assertEquals(sw1.getPartitionMeta(1).getPartitionKey().getEndRow(), 1);
+    assertEquals(sw1.getPartitionMeta(1).getPartitionKey().getStartCol(), 50000);
+    assertEquals(sw1.getPartitionMeta(1).getPartitionKey().getEndCol(), 100000);
+    assertEquals(sw1.getPartitionMeta(1).getPartitionKey().getMatrixId(), w1Id);
+    assertEquals(sw1.getPartitionMeta(1).getPartitionKey().getPartitionId(), 1);
 
-    assertEquals(sw2.getPartition(0).getPartitionKey().getStartRow(), 0);
-    assertEquals(sw2.getPartition(0).getPartitionKey().getEndRow(), 1);
-    assertEquals(sw2.getPartition(0).getPartitionKey().getStartCol(), 0);
-    assertEquals(sw2.getPartition(0).getPartitionKey().getEndCol(), 50000);
-    assertEquals(sw2.getPartition(0).getPartitionKey().getMatrixId(), w2Id);
-    assertEquals(sw2.getPartition(0).getPartitionKey().getPartitionId(), 0);
-    assertEquals(sw2.getPartition(0).getClock(), w2Clock);
+    assertEquals(sw2.getPartitionMeta(0).getPartitionKey().getStartRow(), 0);
+    assertEquals(sw2.getPartitionMeta(0).getPartitionKey().getEndRow(), 1);
+    assertEquals(sw2.getPartitionMeta(0).getPartitionKey().getStartCol(), 0);
+    assertEquals(sw2.getPartitionMeta(0).getPartitionKey().getEndCol(), 50000);
+    assertEquals(sw2.getPartitionMeta(0).getPartitionKey().getMatrixId(), w2Id);
+    assertEquals(sw2.getPartitionMeta(0).getPartitionKey().getPartitionId(), 0);
 
-    assertEquals(sw2.getPartition(1).getPartitionKey().getStartRow(), 0);
-    assertEquals(sw2.getPartition(1).getPartitionKey().getEndRow(), 1);
-    assertEquals(sw2.getPartition(1).getPartitionKey().getStartCol(), 50000);
-    assertEquals(sw2.getPartition(1).getPartitionKey().getEndCol(), 100000);
-    assertEquals(sw2.getPartition(1).getPartitionKey().getMatrixId(), w2Id);
-    assertEquals(sw2.getPartition(1).getPartitionKey().getPartitionId(), 1);
-    assertEquals(sw2.getPartition(1).getClock(), w2Clock);
+    assertEquals(sw2.getPartitionMeta(1).getPartitionKey().getStartRow(), 0);
+    assertEquals(sw2.getPartitionMeta(1).getPartitionKey().getEndRow(), 1);
+    assertEquals(sw2.getPartitionMeta(1).getPartitionKey().getStartCol(), 50000);
+    assertEquals(sw2.getPartitionMeta(1).getPartitionKey().getEndCol(), 100000);
+    assertEquals(sw2.getPartitionMeta(1).getPartitionKey().getMatrixId(), w2Id);
+    assertEquals(sw2.getPartitionMeta(1).getPartitionKey().getPartitionId(), 1);
   }
-  
-  private int sum(DenseIntVector vec){
-    int [] values = vec.getValues();
+
+  private int sum(IntIntVector vec) {
+    int[] values = vec.getStorage().getValues();
     int sum = 0;
-    for(int i = 0; i < values.length; i++) {
+    for (int i = 0; i < values.length; i++) {
       sum += values[i];
     }
     return sum;
   }
 
-  @After
-  public void stop() throws AngelException {
+  @After public void stop() throws AngelException {
     try {
       LOG.info("stop local cluster");
       angelClient.stop();

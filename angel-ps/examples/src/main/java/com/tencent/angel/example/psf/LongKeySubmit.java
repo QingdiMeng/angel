@@ -1,12 +1,12 @@
 /*
  * Tencent is pleased to support the open source community by making Angel available.
  *
- * Copyright (C) 2017 THL A29 Limited, a Tencent company. All rights reserved.
+ * Copyright (C) 2017-2018 THL A29 Limited, a Tencent company. All rights reserved.
  *
- * Licensed under the BSD 3-Clause License (the "License"); you may not use this file except in
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in 
  * compliance with the License. You may obtain a copy of the License at
  *
- * https://opensource.org/licenses/BSD-3-Clause
+ * https://opensource.org/licenses/Apache-2.0
  *
  * Unless required by applicable law or agreed to in writing, software distributed under the License
  * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
@@ -15,6 +15,7 @@
  *
  */
 
+
 package com.tencent.angel.example.psf;
 
 import com.tencent.angel.AppSubmitter;
@@ -22,6 +23,7 @@ import com.tencent.angel.client.AngelClient;
 import com.tencent.angel.client.AngelClientFactory;
 import com.tencent.angel.conf.AngelConf;
 import com.tencent.angel.ml.matrix.MatrixContext;
+import com.tencent.angel.ml.matrix.RowType;
 import com.tencent.angel.protobuf.generated.MLProtos;
 import org.apache.hadoop.conf.Configuration;
 
@@ -31,7 +33,7 @@ public class LongKeySubmit implements AppSubmitter {
     AngelClient angelClient = AngelClientFactory.get(conf);
     int blockCol = conf.getInt("blockcol", 5000000);
     MatrixContext context = new MatrixContext("longkey_test", 1, 2100000000, 1, blockCol);
-    context.setRowType(MLProtos.RowType.T_DOUBLE_SPARSE_LONGKEY);
+    context.setRowType(RowType.T_DOUBLE_SPARSE_LONGKEY);
     angelClient.addMatrix(context);
     angelClient.startPSServer();
     angelClient.run();

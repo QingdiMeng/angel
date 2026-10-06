@@ -1,24 +1,21 @@
-/**
- * Licensed to the Apache Software Foundation (ASF) under one
- * or more contributor license agreements.  See the NOTICE file
- * distributed with this work for additional information
- * regarding copyright ownership.  The ASF licenses this file
- * to you under the Apache License, Version 2.0 (the
- * "License"); you may not use this file except in compliance
- * with the License.  You may obtain a copy of the License at
+/*
+ * Tencent is pleased to support the open source community by making Angel available.
  *
- *     http://www.apache.org/licenses/LICENSE-2.0
+ * Copyright (C) 2017-2018 THL A29 Limited, a Tencent company. All rights reserved.
  *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
+ * Licensed under the Apache License, Version 2.0 (the "License"); you may not use this file except in 
+ * compliance with the License. You may obtain a copy of the License at
+ *
+ * https://opensource.org/licenses/Apache-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software distributed under the License
+ * is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express
+ * or implied. See the License for the specific language governing permissions and limitations under
+ * the License.
+ *
  */
 
-/**
- * Add shutDown method to fix Angel client exit problem.
- */
+
 package com.tencent.angel.ipc;
 
 import com.google.protobuf.Message;
@@ -33,48 +30,53 @@ import com.tencent.angel.io.retry.RetryPolicy.RetryAction;
 import com.tencent.angel.protobuf.ProtobufUtil;
 import com.tencent.angel.protobuf.generated.RPCProtos;
 import com.tencent.angel.utils.ThreadUtils;
-import org.apache.hadoop.conf.Configuration;
-import org.codehaus.jackson.map.ObjectMapper;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-import javax.net.SocketFactory;
 import java.io.IOException;
 import java.lang.reflect.InvocationHandler;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.Proxy;
 import java.net.InetSocketAddress;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
+import javax.net.SocketFactory;
+
+import org.apache.hadoop.conf.Configuration;
+import org.codehaus.jackson.map.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * The {@link RpcEngine} implementation for ProtoBuf-based RPCs.
  */
 class ProtobufRpcEngine implements RpcEngine {
+
   private static final Logger LOG = LoggerFactory.getLogger(ProtobufRpcEngine.class);
   protected final static ClientCache CLIENTS = new ClientCache();
 
   @Override
-  public VersionedProtocol getProxy(Class<? extends VersionedProtocol> protocol,
-      long clientVersion, InetSocketAddress addr, Configuration conf, SocketFactory factory,
-      int rpcTimeout, List<String> addrList4Failover) throws IOException {
+  public VersionedProtocol getProxy(Class<? extends VersionedProtocol> protocol, long clientVersion,
+    InetSocketAddress addr, Configuration conf, SocketFactory factory, int rpcTimeout,
+    List<String> addrList4Failover) throws IOException {
     InvocationHandler invokerHandler = null;
     if (addrList4Failover != null && addrList4Failover.size() > 1) {
       // 创建failoverHandler
       invokerHandler =
-          new FailoverInvoker(protocol, addr, conf, factory, rpcTimeout, addrList4Failover);
+        new FailoverInvoker(protocol, addr, conf, factory, rpcTimeout, addrList4Failover);
     } else {
       invokerHandler = new Invoker(protocol, addr, conf, factory, rpcTimeout);
     }
-    return (VersionedProtocol) Proxy.newProxyInstance(protocol.getClassLoader(),
-        new Class[] {protocol}, invokerHandler);
+    return (VersionedProtocol) Proxy
+      .newProxyInstance(protocol.getClassLoader(), new Class[] {protocol}, invokerHandler);
   }
 
-  @Override
-  public void stopProxy(VersionedProtocol proxy) {
+  @Override public void stopProxy(VersionedProtocol proxy) {
     if (proxy != null) {
       InvocationHandler i = Proxy.getInvocationHandler(proxy);
       if (i instanceof Invoker) {
@@ -86,29 +88,28 @@ class ProtobufRpcEngine implements RpcEngine {
     }
   }
 
-  @Override
-  public Server getServer(Class<? extends VersionedProtocol> protocol, Object instance,
-      Class<?>[] ifaces, String bindAddress, int port, Configuration conf) throws IOException {
+  @Override public Server getServer(Class<? extends VersionedProtocol> protocol, Object instance,
+    Class<?>[] ifaces, String bindAddress, int port, Configuration conf) throws IOException {
     return new Server(instance, ifaces, conf, bindAddress, port);
   }
 
-  @Override
-  public void shutDown() {
-    if(CLIENTS != null) {
+  @Override public void shutDown() {
+    if (CLIENTS != null) {
       CLIENTS.clear();
     }
   }
 
   static class FailoverInvoker implements InvocationHandler {
+
     private final FailoverInvokerProvider<ProtobufRpcEngine.Invoker> failoverProvider;
-    private final RetryPolicy failoverPolicy = RetryPolicies.failoverOnNetworkException(
-        RetryPolicies.RETRY_FOREVER, -1);
+    private final RetryPolicy failoverPolicy =
+      RetryPolicies.failoverOnNetworkException(RetryPolicies.RETRY_FOREVER, -1);
     private Invoker currentInvoker;
     private AtomicLong failoverCount = new AtomicLong(0);
 
     public FailoverInvoker(Class<? extends VersionedProtocol> protocol, InetSocketAddress addr,
-        Configuration conf, SocketFactory factory, int rpcTimeout, List<String> addrList4Failover)
-        throws IOException {
+      Configuration conf, SocketFactory factory, int rpcTimeout, List<String> addrList4Failover)
+      throws IOException {
 
       List<ProtobufRpcEngine.Invoker> invoklerList = new ArrayList<ProtobufRpcEngine.Invoker>();
       for (String address : addrList4Failover) {
@@ -127,8 +128,8 @@ class ProtobufRpcEngine implements RpcEngine {
       currentInvoker = invoklerList.get(0);
     }
 
-    @Override
-    public Object invoke(Object proxy, Method method, Object[] args) throws ServiceException {
+    @Override public Object invoke(Object proxy, Method method, Object[] args)
+      throws ServiceException {
       // The number of times this invocation handler has ever been failed over,
       // before this method invocation attempt. Used to prevent concurrent
       // failed method invocations from triggering multiple failover attempts.
@@ -149,7 +150,7 @@ class ProtobufRpcEngine implements RpcEngine {
         if (action.action == RetryAction.RetryDecision.FAIL) {
           if (action.reason != null) {
             LOG.warn("Exception while invoking " + proxy.getClass() + "." + method.getName()
-                + ". Not retrying because " + action.reason, e);
+              + ". Not retrying because " + action.reason, e);
           }
         } else {
           if (action.delayMillis > 0) {
@@ -164,13 +165,13 @@ class ProtobufRpcEngine implements RpcEngine {
               if (markFailoverCount == failoverCount.longValue()) {
                 currentInvoker = failoverProvider.performceFailover();
                 failoverCount.incrementAndGet();
-                LOG.warn("Exception while invoking " + method.getDeclaringClass() + "."
-                    + method.getName() + " method failover happens...failoverCount:"
-                    + failoverCount.longValue() + "current address is:"
-                    + currentInvoker.address.getAddress());
+                LOG.warn(
+                  "Exception while invoking " + method.getDeclaringClass() + "." + method.getName()
+                    + " method failover happens...failoverCount:" + failoverCount.longValue()
+                    + "current address is:" + currentInvoker.address.getAddress());
               } else {
                 LOG.warn("A failover has occurred since the start of this method"
-                    + " invocation attempt.");
+                  + " invocation attempt.");
               }
             }
           }
@@ -192,9 +193,11 @@ class ProtobufRpcEngine implements RpcEngine {
     }
   }
 
+
   static class Invoker implements InvocationHandler {
+
     private static final Map<String, Message> returnTypes =
-        new ConcurrentHashMap<String, Message>();
+      new ConcurrentHashMap<String, Message>();
     private Class<? extends VersionedProtocol> protocol;
     private InetSocketAddress address;
     private NettyTransceiver client;
@@ -204,7 +207,7 @@ class ProtobufRpcEngine implements RpcEngine {
     private Configuration conf;
 
     public Invoker(Class<? extends VersionedProtocol> protocol, InetSocketAddress addr,
-        Configuration conf, SocketFactory factory, int rpcTimeout) throws IOException {
+      Configuration conf, SocketFactory factory, int rpcTimeout) throws IOException {
       this.protocol = protocol;
       this.address = addr;
       this.conf = conf;
@@ -224,7 +227,7 @@ class ProtobufRpcEngine implements RpcEngine {
     }
 
     private RPCProtos.RpcRequestBody constructRpcRequest(Method method, Object[] params)
-        throws ServiceException {
+      throws ServiceException {
       RPCProtos.RpcRequestBody rpcRequest;
       RPCProtos.RpcRequestBody.Builder builder = RPCProtos.RpcRequestBody.newBuilder();
       builder.setMethodName(method.getName());
@@ -238,8 +241,9 @@ class ProtobufRpcEngine implements RpcEngine {
       } else if (length == 1) { // Message
         param = (Message) params[0];
       } else {
-        throw new ServiceException("Too many parameters for request. Method: [" + method.getName()
-            + "]" + ", Expected: 2, Actual: " + params.length);
+        throw new ServiceException(
+          "Too many parameters for request. Method: [" + method.getName() + "]"
+            + ", Expected: 2, Actual: " + params.length);
       }
       builder.setRequestClassName(param.getClass().getName());
       builder.setRequest(param.toByteString());
@@ -252,7 +256,7 @@ class ProtobufRpcEngine implements RpcEngine {
      * This is the client side invoker of RPC method. It only throws ServiceException, since the
      * invocation proxy expects only ServiceException to be thrown by the method in case protobuf
      * service.
-     * 
+     * <p>
      * ServiceException has the following causes:
      * <ol>
      * <li>Exceptions encountered on the client side in this method are set as cause in
@@ -260,13 +264,13 @@ class ProtobufRpcEngine implements RpcEngine {
      * <li>Exceptions from the server are wrapped in RemoteException and are set as cause in
      * ServiceException</li>
      * </ol>
-     * 
+     * <p>
      * Note that the client calling protobuf RPC methods, must handle ServiceException by getting
      * the cause from the ServiceException. If the cause is RemoteException, then unwrap it to get
      * the exception thrown by the server.
      */
-    @Override
-    public Object invoke(Object proxy, Method method, Object[] args) throws ServiceException {
+    @Override public Object invoke(Object proxy, Method method, Object[] args)
+      throws ServiceException {
       long startTime = 0;
       if (LOG.isDebugEnabled()) {
         startTime = System.currentTimeMillis();
@@ -291,8 +295,9 @@ class ProtobufRpcEngine implements RpcEngine {
 
         if (LOG.isDebugEnabled()) {
           long callTime = System.currentTimeMillis() - startTime;
-          if (LOG.isTraceEnabled())
+          if (LOG.isTraceEnabled()) {
             LOG.trace("Call: " + method.getName() + " " + callTime);
+          }
         }
         return val;
       } catch (Throwable e) {
@@ -334,13 +339,18 @@ class ProtobufRpcEngine implements RpcEngine {
     }
   }
 
+
   public static class Server extends NettyServer {
+
     Object instance;
     Class<?> implementation;
+    private static final Map<Class<?>, Object> protocolImplMap = new HashMap<>();
     private static final String WARN_RESPONSE_TIME = "ml.ipc.warn.response.time";
     private static final String WARN_RESPONSE_SIZE = "ml.ipc.warn.response.size";
 
-    /** Default value for above params */
+    /**
+     * Default value for above params
+     */
     private static final int DEFAULT_WARN_RESPONSE_TIME = 10000; // milliseconds
     private static final int DEFAULT_WARN_RESPONSE_SIZE = 100 * 1024 * 1024;
 
@@ -352,34 +362,38 @@ class ProtobufRpcEngine implements RpcEngine {
     private final InetSocketAddress listenerAddress;
 
     public Server(Object instance, final Class<?>[] ifaces, Configuration conf, String bindAddress,
-        int port) throws IOException {
+      int port) throws IOException {
       super(new InetSocketAddress(bindAddress, port), conf);
       this.listenerAddress = new InetSocketAddress(bindAddress, this.getPort());
       this.instance = instance;
       this.implementation = instance.getClass();
-
       this.warnResponseTime = conf.getInt(WARN_RESPONSE_TIME, DEFAULT_WARN_RESPONSE_TIME);
       this.warnResponseSize = conf.getInt(WARN_RESPONSE_SIZE, DEFAULT_WARN_RESPONSE_SIZE);
+      addProtocolImpl(implementation, instance);
     }
 
     private static final Map<String, Message> methodArg = new ConcurrentHashMap<String, Message>();
     private static final Map<String, Method> methodInstances =
-        new ConcurrentHashMap<String, Method>();
+      new ConcurrentHashMap<String, Method>();
+
+
+    @Override public void addProtocolImpl(Class<?> protocol, Object impl) {
+      protocolImplMap.put(protocol, impl);
+    }
 
     @Override
     /**
      * This is a server side method, which is invoked over RPC. On success
      * the return response has protobuf response payload. On failure, the
      * exception name and the stack trace are returned in the protobuf response.
-     */
-    public Message call(Class<? extends VersionedProtocol> protocol,
-        RPCProtos.RpcRequestBody rpcRequest, long receiveTime) throws IOException {
+     */ public Message call(Class<? extends VersionedProtocol> protocol,
+      RPCProtos.RpcRequestBody rpcRequest, long receiveTime) throws IOException {
       try {
         String methodName = rpcRequest.getMethodName();
         Method method = getMethod(protocol, methodName);
         if (method == null) {
-          throw new UnknownProtocolException("Method " + methodName + " doesn't exist in protocol "
-              + protocol.getName());
+          throw new UnknownProtocolException(
+            "Method " + methodName + " doesn't exist in protocol " + protocol.getName());
         }
 
         long clientVersion = rpcRequest.getClientProtocolVersion();
@@ -392,8 +406,11 @@ class ProtobufRpcEngine implements RpcEngine {
         if (protocol.isAssignableFrom(this.implementation)) {
           impl = this.instance;
         } else {
-          throw new UnknownProtocolException(protocol, "the server class is "
-              + this.implementation.getName());
+          impl = protocolImplMap.get(protocol);
+        }
+        if (impl == null) {
+          throw new UnknownProtocolException(protocol,
+            "the server class is " + this.implementation.getName());
         }
 
         long startTime = System.currentTimeMillis();
@@ -408,15 +425,16 @@ class ProtobufRpcEngine implements RpcEngine {
           result = (Message) method.invoke(impl, param);
         } else {
           throw new ServiceException("Too many parameters for method: [" + method.getName() + "]"
-              + ", allowed (at most): 2, Actual: " + method.getParameterTypes().length);
+            + ", allowed (at most): 2, Actual: " + method.getParameterTypes().length);
         }
         int processingTime = (int) (System.currentTimeMillis() - startTime);
         int qTime = (int) (startTime - receiveTime);
 
         if (TRACELOG.isDebugEnabled()) {
-          TRACELOG.debug(getRemoteAddress() + " Call #" + "; served=" + protocol.getSimpleName()
-              + "#" + method.getName() + ", queueTime=" + qTime + ", processingTime="
-              + processingTime + ", request=");
+          TRACELOG.debug(
+            getRemoteAddress() + " Call #" + "; served=" + protocol.getSimpleName() + "#" + method
+              .getName() + ", queueTime=" + qTime + ", processingTime=" + processingTime
+              + ", request=");
         }
 
         long responseSize = result.getSerializedSize();
@@ -436,7 +454,7 @@ class ProtobufRpcEngine implements RpcEngine {
           buffer.append(")");
           buffer.append(", client version=").append(clientVersion);
           logResponse(new Object[] {rpcRequest.getRequest()}, methodName, buffer.toString(),
-              (tooLarge ? "TooLarge" : "TooSlow"), startTime, processingTime, qTime, responseSize);
+            (tooLarge ? "TooLarge" : "TooSlow"), startTime, processingTime, qTime, responseSize);
           // provides a count of log-reported slow responses
 
         }
@@ -508,18 +526,18 @@ class ProtobufRpcEngine implements RpcEngine {
 
     /**
      * Logs an RPC response to the LOG file, producing valid JSON objects for client Operations.
-     * 
-     * @param params The parameters received in the call.
-     * @param methodName The name of the method invoked
-     * @param call The string representation of the call
-     * @param tag The tag that will be used to indicate this event in the log.
-     * @param startTime The time that the call was initiated, in ms.
+     *
+     * @param params         The parameters received in the call.
+     * @param methodName     The name of the method invoked
+     * @param call           The string representation of the call
+     * @param tag            The tag that will be used to indicate this event in the log.
+     * @param startTime      The time that the call was initiated, in ms.
      * @param processingTime The duration that the call took to run, in ms.
-     * @param qTime The duration that the call spent on the queue prior to being initiated, in ms.
-     * @param responseSize The size in bytes of the response buffer.
+     * @param qTime          The duration that the call spent on the queue prior to being initiated, in ms.
+     * @param responseSize   The size in bytes of the response buffer.
      */
     void logResponse(Object[] params, String methodName, String call, String tag, long startTime,
-        int processingTime, int qTime, long responseSize) throws IOException {
+      int processingTime, int qTime, long responseSize) throws IOException {
       // for JSON encoding
       ObjectMapper mapper = new ObjectMapper();
       // base information that is reported regardless of type of call
@@ -538,13 +556,13 @@ class ProtobufRpcEngine implements RpcEngine {
 
     protected static void log(String value, Logger LOG) {
       String v = value;
-      if (v != null && v.length() > 55)
+      if (v != null && v.length() > 55) {
         v = v.substring(0, 55) + "...";
+      }
       LOG.info(v);
     }
 
-    @Override
-    public InetSocketAddress getListenerAddress() {
+    @Override public InetSocketAddress getListenerAddress() {
       return this.listenerAddress;
     }
   }
